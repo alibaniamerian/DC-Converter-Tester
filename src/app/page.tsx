@@ -9,18 +9,28 @@ export default function Home() {
   const [command, setCommand] = useState('');
   const [response, setResponse] = useState('');
   const [isConnected, setIsConnected] = useState(false);
+  const [port, setPort] = useState<SerialPort | null>(null);
 
   const handleActivate = async () => {
-    if (isConnected) {
-      // Placeholder for serial port disconnection logic
-      setIsConnected(false);
-      setResponse('');
+    if (isConnected && port) {
+      try {
+        await port.close();
+        setIsConnected(false);
+        setResponse('COM3 Port Disconnected');
+      } catch (error: any) {
+        setResponse(`Error disconnecting: ${error.message}`);
+      }
+      setPort(null);
     } else {
       // Request serial port access
       if ('serial' in navigator) {
         try {
-          const port = await navigator.serial.requestPort();
-          // Placeholder for actual connection logic using the port object
+          const newPort = await navigator.serial.requestPort();
+          
+          //open the port
+          await newPort.open({ baudRate: 9600 });
+
+          setPort(newPort);
           setIsConnected(true);
           setResponse('COM3 Port Activated');
         } catch (error: any) {
@@ -32,9 +42,26 @@ export default function Home() {
     }
   };
 
-  const handleSendCommand = () => {
-    // Placeholder for sending command via serial port
-    setResponse(`Command "${command}" sent. Response pending...`);
+  const handleSendCommand = async () => {
+    if (!port) {
+      setResponse('Port not activated. Please activate COM3 first.');
+      return;
+    }
+
+    const writer = port.writable?.getWriter();
+    if (!writer) {
+        setResponse('Failed to acquire port writer.');
+        return;
+    }
+
+    try {
+      await writer.write(new TextEncoder().encode(command));
+      setResponse(`Command "${command}" sent. Response pending...`);
+    } catch (error: any) {
+      setResponse(`Error sending command: ${error.message}`);
+    } finally {
+      writer.releaseLock();
+    }
   };
 
   return (
