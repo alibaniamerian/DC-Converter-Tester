@@ -1,4 +1,3 @@
-
 "use client";
 import React, { useState } from 'react';
 import { Input } from "@/components/ui/input";
@@ -12,9 +11,25 @@ export default function Home() {
   const [isConnected, setIsConnected] = useState(false);
 
   const handleActivate = async () => {
-    // Placeholder for serial port activation logic
-    setIsConnected(!isConnected);
-    setResponse(isConnected ? '' : 'COM3 Port Activated');
+    if (isConnected) {
+      // Placeholder for serial port disconnection logic
+      setIsConnected(false);
+      setResponse('');
+    } else {
+      // Request serial port access
+      if ('serial' in navigator) {
+        try {
+          const port = await navigator.serial.requestPort();
+          // Placeholder for actual connection logic using the port object
+          setIsConnected(true);
+          setResponse('COM3 Port Activated');
+        } catch (error: any) {
+          setResponse(`Error: ${error.message}`);
+        }
+      } else {
+        setResponse('Web Serial API is not supported in this browser.');
+      }
+    }
   };
 
   const handleSendCommand = () => {
@@ -69,5 +84,3 @@ export default function Home() {
     </div>
   );
 }
-
-    
