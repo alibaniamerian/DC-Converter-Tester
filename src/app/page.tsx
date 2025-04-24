@@ -55,7 +55,7 @@ export default function Home() {
     }
 
     try {
-      await writer.write(new TextEncoder().encode(command));
+      await writer.write(new TextEncoder().encode(command + '\n'));
       setResponse(`Command "${command}" sent. Response pending...`);
     } catch (error: any) {
       setResponse(`Error sending command: ${error.message}`);
@@ -111,3 +111,4 @@ export default function Home() {
     </div>
   );
 }
+
