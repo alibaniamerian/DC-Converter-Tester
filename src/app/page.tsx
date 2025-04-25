@@ -62,21 +62,43 @@ export default function Home() {
 
     try {
       // Send the command with Line Feed
-      const lineFeedCode = 0x0A; // Line Feed character code
-      const data = new TextEncoder().encode(command + String.fromCharCode(lineFeedCode));
+      const data = new TextEncoder().encode(command);
       await writer.write(data);
       setResponse(`Command "${command}" sent with Line Feed. Response pending...`);
 
       // Listen for incoming data
       let incomingData = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
-          break;
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Timeout: No data received within 2000ms'));
+        }, 2000);
+      });
+
+      const readPromise = new Promise(async (resolve, reject) => {
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) {
+              resolve(incomingData);
+              break;
+            }
+            incomingData += new TextDecoder().decode(value);
+            resolve(incomingData);
+          }
+        } catch (readError: any) {
+          reject(readError);
         }
-        incomingData += new TextDecoder().decode(value);
-        setResponse(`Response: ${incomingData}`);
-      }
+      });
+
+      // Race the timeout and the read operation
+      Promise.race([readPromise, timeoutPromise])
+        .then((data: any) => {
+          setResponse(`Response: ${data}`);
+        })
+        .catch((error: any) => {
+          setResponse(`Error receiving data: ${error.message}`);
+        });
+
     } catch (error: any) {
       setResponse(`Error sending command: ${error.message}`);
     } finally {
