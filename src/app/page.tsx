@@ -10,6 +10,7 @@ export default function Home() {
   const [response, setResponse] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [port, setPort] = useState<SerialPort | null>(null);
+  const isFirstRender = useRef(true);
 
   const handleActivate = async () => {
     if (isConnected && port) {
@@ -44,8 +45,8 @@ export default function Home() {
 
   const handleSendCommand = async () => {
     if (!port) {
-      setResponse(response + '\nPort not activated. Please activate COM3 first.');
-      return;
+        setResponse(response + '\nPort not activated. Please activate COM3 first.');
+        return;
     }
 
     const writer = port.writable?.getWriter();
