@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plug } from 'lucide-react';
@@ -49,20 +49,39 @@ export default function Home() {
     }
 
     const writer = port.writable?.getWriter();
+    const reader = port.readable?.getReader();
+
     if (!writer) {
         setResponse('Failed to acquire port writer.');
         return;
     }
+    if (!reader) {
+      setResponse('Failed to acquire port reader.');
+      return;
+    }
 
     try {
+      // Send the command with Line Feed
       const lineFeedCode = 0x0A; // Line Feed character code
       const data = new TextEncoder().encode(command + String.fromCharCode(lineFeedCode));
       await writer.write(data);
       setResponse(`Command "${command}" sent with Line Feed. Response pending...`);
+
+      // Listen for incoming data
+      let incomingData = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        incomingData += new TextDecoder().decode(value);
+        setResponse(`Response: ${incomingData}`);
+      }
     } catch (error: any) {
       setResponse(`Error sending command: ${error.message}`);
     } finally {
       writer.releaseLock();
+      reader.releaseLock();
     }
   };
 
@@ -113,5 +132,3 @@ export default function Home() {
     </div>
   );
 }
-
-
