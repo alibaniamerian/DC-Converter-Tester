@@ -16,9 +16,9 @@ export default function Home() {
       try {
         await port.close();
         setIsConnected(false);
-        setResponse('COM3 Port Disconnected');
+        setResponse(response + '\nCOM3 Port Disconnected');
       } catch (error: any) {
-        setResponse(`Error disconnecting: ${error.message}`);
+        setResponse(response + `\nError disconnecting: ${error.message}`);
       }
       setPort(null);
     } else {
@@ -32,19 +32,19 @@ export default function Home() {
 
           setPort(newPort);
           setIsConnected(true);
-          setResponse('COM3 Port Activated');
+          setResponse(response + '\nCOM3 Port Activated');
         } catch (error: any) {
-          setResponse(`Error: ${error.message}`);
+          setResponse(response + `\nError: ${error.message}`);
         }
       } else {
-        setResponse('Web Serial API is not supported in this browser.');
+        setResponse(response + '\nWeb Serial API is not supported in this browser.');
       }
     }
   };
 
   const handleSendCommand = async () => {
     if (!port) {
-      setResponse('Port not activated. Please activate COM3 first.');
+      setResponse(response + '\nPort not activated. Please activate COM3 first.');
       return;
     }
 
@@ -52,11 +52,11 @@ export default function Home() {
     const reader = port.readable?.getReader();
 
     if (!writer) {
-        setResponse('Failed to acquire port writer.');
+        setResponse(response + '\nFailed to acquire port writer.');
         return;
     }
     if (!reader) {
-      setResponse('Failed to acquire port reader.');
+      setResponse(response + '\nFailed to acquire port reader.');
       return;
     }
 
@@ -64,7 +64,7 @@ export default function Home() {
       // Send the command with Line Feed
       const data = new TextEncoder().encode(command + '\n');
       await writer.write(data);
-      setResponse(`Command "${command}" sent with Line Feed. Response pending...`);
+      setResponse(response + `\nCommand "${command}" sent with Line Feed. Response pending...`);
 
       // Listen for incoming data
       let incomingData = '';
@@ -93,14 +93,14 @@ export default function Home() {
       // Race the timeout and the read operation
       Promise.race([readPromise, timeoutPromise])
         .then((data: any) => {
-          setResponse(`Response: ${data}`);
+          setResponse(response + `\nResponse: ${data}`);
         })
         .catch((error: any) => {
-          setResponse(`Error receiving data: ${error.message}`);
+          setResponse(response + `\nError receiving data: ${error.message}`);
         });
 
     } catch (error: any) {
-      setResponse(`Error sending command: ${error.message}`);
+      setResponse(response + `\nError sending command: ${error.message}`);
     } finally {
       writer.releaseLock();
       reader.releaseLock();
@@ -154,4 +154,3 @@ export default function Home() {
     </div>
   );
 }
-
