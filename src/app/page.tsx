@@ -55,7 +55,9 @@ export default function Home() {
     }
 
     try {
-      await writer.write(new TextEncoder().encode("LF"));
+      const lineFeedCode = 0x0A; // Line Feed character code
+      const data = new Uint8Array([lineFeedCode]);
+      await writer.write(data);
       setResponse(`Command "LF" sent. Response pending...`);
     } catch (error: any) {
       setResponse(`Error sending command: ${error.message}`);
@@ -111,3 +113,4 @@ export default function Home() {
     </div>
   );
 }
+
