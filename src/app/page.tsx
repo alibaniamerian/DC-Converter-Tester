@@ -62,7 +62,7 @@ export default function Home() {
 
     try {
       // Send the command with Line Feed
-      const data = new TextEncoder().encode(command);
+      const data = new TextEncoder().encode(command + '\n');
       await writer.write(data);
       setResponse(`Command "${command}" sent with Line Feed. Response pending...`);
 
@@ -154,3 +154,4 @@ export default function Home() {
     </div>
   );
 }
+
