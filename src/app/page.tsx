@@ -274,7 +274,7 @@ export default function Home() {
                   {commands.map((cmd, index) => (
                       <TableRow key={index}>
                           <TableCell>
-                              <Checkbox id={`command-${index}`} />
+                              <Input type="text" id={`command-${index}`} />
                           </TableCell>
                           <TableCell>{cmd}</TableCell>
                       </TableRow>
@@ -295,7 +295,7 @@ export default function Home() {
             className="w-full"
             disabled={isBusy}
             >
-            {isBusy ? (isConnected ? 'Disconnecting...' : 'Connecting...') : (isConnected ? 'Disconnect COM Port' : 'Activate COM Port')}
+            {isBusy ? (isConnected ? 'Disconnecting...' : 'Connecting...') : (isConnected ? 'Activate COM Port' : 'Activate COM Port')}
             <Plug className="ml-2 h-4 w-4" />
           </Button>
         </div>
@@ -316,5 +316,6 @@ export default function Home() {
     </div>
   );
 }
+
 
 
