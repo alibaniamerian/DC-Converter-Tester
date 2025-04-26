@@ -225,7 +225,6 @@ export default function Home() {
         
           await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2000ms
       }
-      setCommands([])
     } catch (error) {
         // Error is already logged by sendAndRead, could add more context here if needed
         console.error("handleSendCommand caught:", error);
@@ -312,4 +311,5 @@ export default function Home() {
     </div>
   );
 }
+
 
