@@ -34,6 +34,9 @@ export default function Home() {
           setPort(newPort);
           setIsConnected(true);
           setResponse(response + '\nCOM3 Port Activated');
+          // Send *IDN? command automatically
+          await sendIdnCommand(newPort);
+
         } catch (error: any) {
           setResponse(response + `\nError: ${error.message}`);
         }
@@ -66,6 +69,70 @@ export default function Home() {
       const data = new TextEncoder().encode(command + '\n');
       await writer.write(data);
       setResponse(response + `\nCommand "${command}" sent with Line Feed. Response pending...`);
+
+      // Listen for incoming data
+      let incomingData = '';
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Timeout: No data received within 2000ms'));
+        }, 2000);
+      });
+
+      const readPromise = new Promise(async (resolve, reject) => {
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) {
+              resolve(incomingData);
+              break;
+            }
+            incomingData += new TextDecoder().decode(value);
+            resolve(incomingData);
+          }
+        } catch (readError: any) {
+          reject(readError);
+        }
+      });
+
+      // Race the timeout and the read operation
+      Promise.race([readPromise, timeoutPromise])
+        .then((data: any) => {
+          setResponse(response + `\nResponse: ${data}`);
+        })
+        .catch((error: any) => {
+          setResponse(response + `\nError receiving data: ${error.message}`);
+        });
+
+    } catch (error: any) {
+      setResponse(response + `\nError sending command: ${error.message}`);
+    } finally {
+      writer.releaseLock();
+      reader.releaseLock();
+    }
+  };
+  const sendIdnCommand = async (activePort:SerialPort) => {
+    if (!activePort) {
+        setResponse(response + '\nPort not activated. Please activate COM3 first.');
+        return;
+    }
+
+    const writer = activePort.writable?.getWriter();
+    const reader = activePort.readable?.getReader();
+
+    if (!writer) {
+        setResponse(response + '\nFailed to acquire port writer.');
+        return;
+    }
+    if (!reader) {
+      setResponse(response + '\nFailed to acquire port reader.');
+      return;
+    }
+
+    try {
+      // Send the command with Line Feed
+      const data = new TextEncoder().encode('*IDN?\n');
+      await writer.write(data);
+      setResponse(response + `\nCommand "*IDN?" sent with Line Feed. Response pending...`);
 
       // Listen for incoming data
       let incomingData = '';
