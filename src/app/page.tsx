@@ -4,13 +4,22 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plug } from 'lucide-react';
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 
 export default function Home() {
   const [command, setCommand] = useState('');
   const [response, setResponse] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [port, setPort] = useState<SerialPort | null>(null);
-  const isFirstRender = useRef(true);
+  const [commands, setCommands] = useState<string[]>([]);
 
   const handleActivate = async () => {
     if (isConnected && port) {
@@ -52,23 +61,40 @@ export default function Home() {
         return;
     }
 
+    const commandList = command.split('\n').filter(cmd => cmd.trim() !== '');
+    setCommands(commandList); // Update the commands state
+    
+    for (const cmd of commandList) {
+      await sendSingleCommand(cmd); // Send each command sequentially
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2000ms
+    }
+  };
+
+  const sendSingleCommand = async (cmd: string) => {
+    if (!port) {
+      setResponse(response + '\nPort not activated. Please activate COM3 first.');
+      return;
+    }
     const writer = port.writable?.getWriter();
-    const reader = port.readable?.getReader();
 
     if (!writer) {
         setResponse(response + '\nFailed to acquire port writer.');
         return;
     }
-    if (!reader) {
-      setResponse(response + '\nFailed to acquire port reader.');
-      return;
-    }
 
     try {
       // Send the command with Line Feed
-      const data = new TextEncoder().encode(command + '\n');
+      const data = new TextEncoder().encode(cmd + '\n');
       await writer.write(data);
-      setResponse(response + `\nCommand "${command}" sent with Line Feed. Response pending...`);
+      setResponse(response + `\nCommand "${cmd}" sent with Line Feed. Response pending...`);
+
+      // Create a reader before releasing the lock
+      const reader = port.readable?.getReader();
+
+      if (!reader) {
+        setResponse(response + '\nFailed to acquire port reader.');
+        return;
+      }
 
       // Listen for incoming data
       let incomingData = '';
@@ -107,9 +133,9 @@ export default function Home() {
       setResponse(response + `\nError sending command: ${error.message}`);
     } finally {
       writer.releaseLock();
-      reader.releaseLock();
     }
   };
+
   const sendIdnCommand = async (activePort:SerialPort) => {
     if (!activePort) {
         setResponse(response + '\nPort not activated. Please activate COM3 first.');
@@ -182,17 +208,16 @@ export default function Home() {
       <div className="w-full max-w-md space-y-4">
         <div>
           <label htmlFor="command" className="block text-sm font-medium text-foreground">
-            Enter Command:
+            Enter Commands (one per line):
           </label>
-          <Input
+          <Textarea
             id="command"
-            type="text"
-            placeholder="Enter command to send"
+            placeholder="Enter commands to send (one per line)"
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             className="mt-1"
           />
-          <Button onClick={handleSendCommand} className="mt-2 w-full">Send Command</Button>
+          <Button onClick={handleSendCommand} className="mt-2 w-full">Send Commands</Button>
         </div>
 
         <div>
@@ -219,6 +244,26 @@ export default function Home() {
           />
         </div>
       </div>
+
+      {commands.length > 0 && (
+        <div className="w-full max-w-md mt-4">
+          <Table>
+            <TableCaption>List of commands sent</TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Command</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {commands.map((cmd, index) => (
+                <TableRow key={index}>
+                  <TableCell>{cmd}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 }
