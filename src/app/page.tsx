@@ -142,6 +142,7 @@ export default function Home() {
   const [port, setPort] = useState<SerialPort | null>(null);
   const [commands, setCommands] = useState<string[]>([]);
   const [isBusy, setIsBusy] = useState(false); // Prevent concurrent commands
+  const [commandResponses, setCommandResponses] = useState<string[]>([]); // Store responses
 
   // No need for isFirstRender ref anymore
 
@@ -174,7 +175,8 @@ export default function Home() {
            setResponse('COM Port Activated'); // Reset response log on new connection
 
            // Send *IDN? command automatically and wait for it
-           await sendAndRead(newPort, '*IDN?', setResponse);
+           const idnResponse = await sendAndRead(newPort, '*IDN?', setResponse);
+           setCommandResponses(['*IDN? ' + idnResponse]);
            // No separate sendIdnCommand function needed anymore
 
          } catch (error: any) {
@@ -201,6 +203,7 @@ export default function Home() {
     }
 
     setCommands(prevCommands => [...prevCommands, command]); // Add to the queue
+    setCommandResponses(prevResponses => [...prevResponses, '']); // Initialize response
     setCommand(''); // Clear the input field
   };
 
@@ -220,12 +223,19 @@ export default function Home() {
     setIsBusy(true);
 
     try {
-      for (const cmd of commands) {
-        
-          await sendAndRead(port, cmd, setResponse); // Send each command sequentially
-        
-          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2000ms
+      const responses: string[] = []; // Collect responses
+      for (let i = 0; i < commands.length; i++) {
+        const cmd = commands[i];
+        try {
+          const cmdResponse = await sendAndRead(port, cmd, setResponse);
+          responses[i] = cmdResponse; // Store response for this command
+        } catch (error) {
+          responses[i] = 'Error'; // Store "Error" if there was an error
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2000ms
       }
+      setCommandResponses(responses); // Update all responses at once
+
     } catch (error) {
         // Error is already logged by sendAndRead, could add more context here if needed
         console.error("handleSendCommand caught:", error);
@@ -266,7 +276,7 @@ export default function Home() {
                   <TableCaption>List of commands in queue</TableCaption>
                   <TableHeader>
                   <TableRow>
-                      <TableHead>Select</TableHead>
+                      <TableHead>Resp</TableHead>
                       <TableHead>Command</TableHead>
                   </TableRow>
                   </TableHeader>
@@ -274,7 +284,7 @@ export default function Home() {
                   {commands.map((cmd, index) => (
                       <TableRow key={index}>
                           <TableCell>
-                              <Input type="text" id={`command-${index}`} />
+                              <Input type="text" id={`command-${index}`} value={commandResponses[index] || ''} readOnly/>
                           </TableCell>
                           <TableCell>{cmd}</TableCell>
                       </TableRow>
@@ -316,6 +326,5 @@ export default function Home() {
     </div>
   );
 }
-
 
 
