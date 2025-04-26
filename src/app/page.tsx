@@ -7,6 +7,7 @@ import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, Tabl
 import { Button } from "@/components/ui/button";
 import { Plug } from 'lucide-react';
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // --- Refactored Send/Read Function ---
 async function sendAndRead(
@@ -265,13 +266,17 @@ export default function Home() {
                   <TableCaption>List of commands in queue</TableCaption>
                   <TableHeader>
                   <TableRow>
+                      <TableHead>Select</TableHead>
                       <TableHead>Command</TableHead>
                   </TableRow>
                   </TableHeader>
                   <TableBody>
                   {commands.map((cmd, index) => (
                       <TableRow key={index}>
-                      <TableCell>{cmd}</TableCell>
+                          <TableCell>
+                              <Checkbox id={`command-${index}`} />
+                          </TableCell>
+                          <TableCell>{cmd}</TableCell>
                       </TableRow>
                   ))}</TableBody>
               </Table>
@@ -311,5 +316,4 @@ export default function Home() {
     </div>
   );
 }
-
 
