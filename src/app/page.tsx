@@ -8,16 +8,22 @@ import { Button } from "@/components/ui/button";
 import { Plug } from 'lucide-react';
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useComPort } from '../hooks/useComPort'; // Import the custom hook
 
 // --- Refactored Send/Read Function ---
+// This function remains here as it's used by the main page logic too,
+// but it's passed to the hook as a dependency.
 async function sendAndRead(
   // @ts-ignore
-  port: SerialPort, 
-  
+  port: SerialPort,
+
   commandToSend: string,
   responseUpdater: React.Dispatch<React.SetStateAction<string>>,
-  timeoutMs: number = 2000
+  timeoutMs: number = 2000,
+  lineEnding: string = '\\n', // Parameter for sending
+  responseDelimiter: string = '\\n' // Add this parameter for receiving
 ): Promise<string> { // Return the actual data or throw error
+
 
   const writer = port.writable?.getWriter();
   const reader = port.readable?.getReader();
@@ -34,25 +40,29 @@ async function sendAndRead(
   try {
     if (!expectResponse) {
       // Update log - Use functional update
-      responseUpdater(prev => prev + `\nSending: "${commandToSend}" (No Response Expected)`);
+      responseUpdater(prev => prev + `Sending: "${commandToSend}" (No Response Expected)`);
+    } else {
+      // Update log - Use functional update
+      responseUpdater(prev => prev + `Sending: "${commandToSend}"...`);
     }
 
-    // Update log - Use functional update
-    responseUpdater(prev => prev + `\nSending: "${commandToSend}"...`);
 
     // Send the command with Line Feed
-    const dataToSend = new TextEncoder().encode(commandToSend + '\n');
+    const dataToSend = new TextEncoder().encode(commandToSend + lineEnding); // Use the lineEnding parameter
+
+    console.log('Attempting to write to port:', commandToSend); // Add this line
     await writer.write(dataToSend);
+    console.log('Write to port complete.'); // Add this line
 
     if (!expectResponse) {
       return "";
     }
-    
+
     // --- Improved Read Logic ---
     let incomingData = '';
     let readerDone = false;
     const startTime = Date.now();
-    
+
 
     while (!readerDone) {
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -61,13 +71,14 @@ async function sendAndRead(
             // If we already have *some* data, resolve with it, otherwise timeout error
             if (incomingData.length > 0) {
                readerDone = true; // Exit loop, treat received data as response
+               // @ts-ignore - TS doesn't like resolve() without value, but needed for Promise.race
                resolve(); // Need a dummy resolve for Promise.race
             } else {
                reject(new Error(`Timeout: No data received for "${commandToSend}" within ${timeoutMs}ms`));
             }
         } else {
             setTimeout(() => reject(new Error(`Read operation timed out after ${timeLeft}ms delay`)), timeLeft);
-            
+
         }
       });
 
@@ -86,11 +97,11 @@ async function sendAndRead(
             const decodedChunk = new TextDecoder().decode(value);
             incomingData += decodedChunk;
             // --- Check for Delimiter (e.g., newline) ---
-            // Adjust '\n' if your device uses a different terminator like '\r\n'
-            if (incomingData.includes('\n')) {
-               readerDone = true; // Found delimiter, assume full response received
-               break;
-             }
+            // Adjust '\n' if your device uses a different terminator like '\\n' // <-- Corrected comment
+            if (incomingData.includes(responseDelimiter)) { // Check for the specified response delimiter
+              readerDone = true; // Found delimiter, assume full response received
+              break;
+            }
              // Reset start time for timeout if partial data received, prevents premature timeout if response is slow but steady
              // startTime = Date.now(); // Optional: Uncomment if responses can be very slow streams
           }
@@ -130,80 +141,41 @@ async function sendAndRead(
     }
     writer.releaseLock(); // Release writer lock immediately after write
   }
-  
-} 
+
+}
 
 
 
 export default function Home() {
   const [command, setCommand] = useState('');
   const [response, setResponse] = useState('');
-  const [isConnected, setIsConnected] = useState(false);
-  const [port, setPort] = useState<SerialPort | null>(null);
+  // const [isConnected, setIsConnected] = useState(false); // Moved to hook
+  // const [port, setPort] = useState<SerialPort | null>(null); // Moved to hook
   const [commands, setCommands] = useState<string[]>([]);
-  const [isBusy, setIsBusy] = useState(false); // Prevent concurrent commands
+  const [isBusy, setIsBusy] = useState(false); // Shared busy state
   const [commandResponses, setCommandResponses] = useState<string[]>([]); // Store responses
 
-  // No need for isFirstRender ref anymore
-
-  const handleActivate = async () => {
-     setIsBusy(true); // Prevent other actions while connecting/disconnecting
-     if (isConnected && port) {
-       try {
-         await port.close();
-         setPort(null); // Clear port state *before* setting disconnected
-         setIsConnected(false);
-         setResponse(prev => prev + '\nCOM Port Disconnected'); // Use functional update
-       } catch (error: any) {
-         setResponse(prev => prev + `\nError disconnecting: ${error.message}`); // Functional update
-         // Might still be connected or in weird state, try resetting UI
-         setPort(null);
-         setIsConnected(false);
-       } finally {
-          setIsBusy(false);
-       }
-     } else {
-       if ('serial' in navigator) {
-         // @ts-ignore
-         try {
-            // @ts-ignore
-            const newPort = await navigator.serial.requestPort();
-           await newPort.open({ baudRate: 9600 });
-
-            setPort(newPort); // Set port first
-           setIsConnected(true); // Then set connected
-           setResponse('COM Port Activated'); // Reset response log on new connection
-
-           // Send *IDN? command automatically and wait for it
-           const idnResponse = await sendAndRead(newPort, '*IDN?', setResponse);
-           setCommandResponses(['*IDN? ' + idnResponse]);
-           // No separate sendIdnCommand function needed anymore
-
-         } catch (error: any) {
-           setResponse(prev => prev + `\nError connecting: ${error.message}`); // Functional update
-           setPort(null);
-           setIsConnected(false);
-         } finally {
-             setIsBusy(false);
-
-         }
-       } else {
-         setResponse('Web Serial API is not supported in this browser.');
-         setIsBusy(false);
-       }
-     }
-   }
+  // --- Use the custom hook ---
+  const { port, isConnected, activatePort } = useComPort({
+    setIsBusy,
+    setResponse,
+    setCommandResponses,
+    sendAndRead, // Pass the sendAndRead function as a dependency
+  });
+  // Note: handleActivate function is now activatePort returned from the hook
 
   const handleAddCommand = () => {
     if (!command.trim()) {
-      
-      setResponse(prev => prev + '\nPlease enter a command to send.\n'); // Functional update
-      
+
+      setResponse(prev => prev + '\\nPlease enter a command to send.'); // Functional update
+
+
         return;
     }
 
     setCommands(prevCommands => [...prevCommands, command]); // Add to the queue
-    setCommandResponses(prevResponses => [...prevResponses, '']); // Initialize response
+    // Initialize 8 empty strings for response + 7 extra text boxes
+    setCommandResponses(prevResponses => [...prevResponses, '', '', '', '', '', '', '', '']); // Updated for 8 columns (1 response + 7 extra)
     setCommand(''); // Clear the input field
   };
 
@@ -212,29 +184,36 @@ export default function Home() {
 
 
     if (!port || !isConnected) {
-      setResponse(prev => prev + '\nPort not connected or activated. Please activate first.\n'); // Functional update
+      setResponse(prev => prev + '\\n Port not connected or activated. Please activate first.'); // Functional update
+
       return;
     }
     if (isBusy) {
-        setResponse(prev => prev + '\nBusy with previous operation. Please wait.'); // Functional update
+      setResponse(prev => prev + '\\n Busy with previous operation. Please wait.'); // Functional update
+
         return;
 
     }
     setIsBusy(true);
 
     try {
-      const responses: string[] = []; // Collect responses
+      // We now have 8 columns to update (1 response + 7 extra)
+      const updatedResponses = [...commandResponses]; // Copy current state
       for (let i = 0; i < commands.length; i++) {
         const cmd = commands[i];
         try {
+          // Use the 'port' state variable returned from the hook
           const cmdResponse = await sendAndRead(port, cmd, setResponse);
-          responses[i] = cmdResponse; // Store response for this command
+          // Update the first column (index 8*i) for the actual response
+          updatedResponses[8 * i] = cmdResponse; // Store response for this command in the first of 8 slots
         } catch (error) {
-          responses[i] = 'Error'; // Store "Error" if there was an error
+           // Update the first column (index 8*i) with "Error" on failure
+          updatedResponses[8 * i] = 'Error'; // Store "Error" if there was an error
         }
+        setCommandResponses([...updatedResponses]); // Update state after each command
         await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2000ms
       }
-      setCommandResponses(responses); // Update all responses at once
+
 
     } catch (error) {
         // Error is already logged by sendAndRead, could add more context here if needed
@@ -245,7 +224,7 @@ export default function Home() {
   };
 
 
-  // sendIdnCommand function is removed, integrated into handleActivate
+  // handleActivate is removed, use activatePort from the hook
 
 
   return (
@@ -265,27 +244,42 @@ export default function Home() {
                 className="mt-1"
             />
 
-            {/* Disable button when busy or not connected */}
+            {/* Disable button when busy */}
             <Button onClick={handleAddCommand} className="mt-2 w-full" disabled={isBusy}>
               Add Command
             </Button>
           </div>
           {commands.length > 0 && (
-              <div className="w-full max-w-md mt-4">
+              <div className="w-full max-w-lg mt-4"> {/* Increased max-w */} 
               <Table>
                   <TableCaption>List of commands in queue</TableCaption>
                   <TableHeader>
                   <TableRow>
                       <TableHead>Resp</TableHead>
+                      {/* Replaced Extra 1-7 headers with specific labels */}
+                      {["Vi", "Ii", "Pi", "Vo", "Io", "Po", "Eff"].map((label, i) => (
+                           <TableHead key={`data-header-${i}`}>{label}</TableHead>
+                       ))}
                       <TableHead>Command</TableHead>
                   </TableRow>
                   </TableHeader>
                   <TableBody>
                   {commands.map((cmd, index) => (
                       <TableRow key={index}>
-                          <TableCell>
-                              <Input type="text" id={`command-${index}`} value={commandResponses[index] || ''} readOnly/>
-                          </TableCell>
+                          {/* Render 8 cells: 1 for response + 7 for extra */}
+                          {Array.from({ length: 8 }).map((_, cellIndex) => (
+                              <TableCell key={`cell-${index}-${cellIndex}`}>
+                                  {/* The first cell (cellIndex 0) displays the response */}
+                                  {cellIndex === 0 ? (
+                                       <Input type="text" value={commandResponses[index * 8] || ''} readOnly/>
+                                   ) : (
+                                       // The other 7 cells are empty text boxes
+                                      <Input type="text" value="" readOnly/>
+                                   )}
+
+                              </TableCell>
+                          ))}
+                          {/* Command cell remains */}
                           <TableCell>{cmd}</TableCell>
                       </TableRow>
                   ))}</TableBody>
@@ -298,14 +292,15 @@ export default function Home() {
           </Button>
 
         <div>
-          {/* Disable button when busy */}
+          {/* Use activatePort from the hook for the button click handler */}
+          {/* Button text now reflects connection state correctly */}
           <Button
-            onClick={handleActivate}
+            onClick={activatePort}
             variant="outline"
             className="w-full"
             disabled={isBusy}
             >
-            {isBusy ? (isConnected ? 'Disconnecting...' : 'Connecting...') : (isConnected ? 'Activate COM Port' : 'Activate COM Port')}
+            {isBusy ? (isConnected ? 'Disconnecting...' : 'Connecting...') : (isConnected ? 'Deactivate COM Port' : 'Activate COM Port')}
             <Plug className="ml-2 h-4 w-4" />
           </Button>
         </div>
@@ -326,5 +321,3 @@ export default function Home() {
     </div>
   );
 }
-
-
