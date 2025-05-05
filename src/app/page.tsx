@@ -20,8 +20,8 @@ async function sendAndRead(
   commandToSend: string,
   responseUpdater: React.Dispatch<React.SetStateAction<string>>,
   timeoutMs: number = 2000,
-  lineEnding: string = '\\n', // Parameter for sending
-  responseDelimiter: string = '\\n' // Add this parameter for receiving
+  lineEnding: string = '\n', // Parameter for sending
+  responseDelimiter: string = '\n' // Add this parameter for receiving
 ): Promise<string> { // Return the actual data or throw error
 
 
@@ -97,7 +97,7 @@ async function sendAndRead(
             const decodedChunk = new TextDecoder().decode(value);
             incomingData += decodedChunk;
             // --- Check for Delimiter (e.g., newline) ---
-            // Adjust '\n' if your device uses a different terminator like '\\n' // <-- Corrected comment
+            // Adjust '\n' if your device uses a different terminator like '\n' // <-- Corrected comment
             if (incomingData.includes(responseDelimiter)) { // Check for the specified response delimiter
               readerDone = true; // Found delimiter, assume full response received
               break;
@@ -167,7 +167,7 @@ export default function Home() {
   const handleAddCommand = () => {
     if (!command.trim()) {
 
-      setResponse(prev => prev + '\\nPlease enter a command to send.'); // Functional update
+      setResponse(prev => prev + '\nPlease enter a command to send.'); // Functional update
 
 
         return;
@@ -184,12 +184,12 @@ export default function Home() {
 
 
     if (!port || !isConnected) {
-      setResponse(prev => prev + '\\n Port not connected or activated. Please activate first.'); // Functional update
+      setResponse(prev => prev + '\n Port not connected or activated. Please activate first.'); // Functional update
 
       return;
     }
     if (isBusy) {
-      setResponse(prev => prev + '\\n Busy with previous operation. Please wait.'); // Functional update
+      setResponse(prev => prev + '\n Busy with previous operation. Please wait.'); // Functional update
 
         return;
 
@@ -231,7 +231,7 @@ export default function Home() {
     <div className="flex flex-col items-center justify-start min-h-screen p-8">
       <h1 className="text-2xl font-bold mb-4">DC Converter Tester V0</h1>
 
-      <div className="w-full max-w-md space-y-4">
+      <div className="w-full space-y-4">
           <div>
             <label htmlFor="command" className="block text-sm font-medium text-foreground">
               Enter Commands (one per line):
@@ -250,17 +250,17 @@ export default function Home() {
             </Button>
           </div>
           {commands.length > 0 && (
-              <div className="w-full max-w-lg mt-4"> {/* Increased max-w */} 
+              <div className="w-full mt-4"> {/* Increased max-w */} 
               <Table>
                   <TableCaption>List of commands in queue</TableCaption>
                   <TableHeader>
                   <TableRow>
-                      <TableHead>Resp</TableHead>
+                      <TableHead className="w-[90px]">Resp</TableHead>
                       {/* Replaced Extra 1-7 headers with specific labels */}
                       {["Vi", "Ii", "Pi", "Vo", "Io", "Po", "Eff"].map((label, i) => (
-                           <TableHead key={`data-header-${i}`}>{label}</TableHead>
+                           <TableHead key={`data-header-${i}`} className="w-[50px]">{label}</TableHead>
                        ))}
-                      <TableHead>Command</TableHead>
+                      <TableHead className="w-[90px]">Command</TableHead>
                   </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -271,10 +271,10 @@ export default function Home() {
                               <TableCell key={`cell-${index}-${cellIndex}`}>
                                   {/* The first cell (cellIndex 0) displays the response */}
                                   {cellIndex === 0 ? (
-                                       <Input type="text" value={commandResponses[index * 8] || ''} readOnly/>
+                                       <Input type="text" value={commandResponses[index * 8] || ''} readOnly className="w-[90px]"/>
                                    ) : (
                                        // The other 7 cells are empty text boxes
-                                      <Input type="text" value="" readOnly/>
+                                      <Input type="text" value="" readOnly className="w-[50px]"/>
                                    )}
 
                               </TableCell>

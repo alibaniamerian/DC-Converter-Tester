@@ -56,9 +56,6 @@ export const useComPort = ({
           setIsConnected(true); // Then set connected
           setResponse('COM Port Activated'); // Reset response log on new connection
 
-          // Send *IDN? command automatically and wait for it
-          const idnResponse = await sendAndRead(newPort, '*IDN?', setResponse, 2000, '\\n'); // Added '\r\n' for lineEnding
-          setCommandResponses(['*IDN? ' + idnResponse]);
           
 
         } catch (error: any) {
