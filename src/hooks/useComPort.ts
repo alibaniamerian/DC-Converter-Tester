@@ -11,99 +11,111 @@ interface UseComPortProps {
 
 // Define the shape of the object returned by the hook
 interface UseComPortReturn {
-  port: SerialPort | null;
-  isConnected: boolean;
-  activatePort: () => Promise<void>; // Renamed from handleActivate
+  port1: SerialPort | null;
+  port2: SerialPort | null;
+  isConnected1: boolean;
+  isConnected2: boolean;
+  activatePort1: (portFilter?: SerialPortFilter) => Promise<void>; // portFilter is now optional
+  activatePort2: (portFilter?: SerialPortFilter) => Promise<void>; // portFilter is now optional
+}
+
+interface SerialPortFilter {
+  usbVendorId?: number;
+  usbProductId?: number;
 }
 
 export const useComPort = ({
   setIsBusy,
   setResponse,
-  setCommandResponses,
-  sendAndRead,
+  // setCommandResponses, // Not used directly in the hook for now
+  // sendAndRead, // Not used directly in the hook for now
 }: UseComPortProps): UseComPortReturn => {
-  const [port, setPort] = useState<SerialPort | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const [port1, setPort1] = useState<SerialPort | null>(null);
+  const [port2, setPort2] = useState<SerialPort | null>(null);
+  const [isConnected1, setIsConnected1] = useState(false);
+  const [isConnected2, setIsConnected2] = useState(false);
 
-  const activatePort = async () => {
-    setIsBusy(true); // Prevent other actions while connecting/disconnecting
-    if (isConnected && port) {
-      // Disconnect logic
+  const activatePort = async (portNumber: number, portFilter?: SerialPortFilter) => {
+    // setIsBusy(true); // Busy state will be handled by the calling component (page.tsx)
+    let currentPortState = portNumber === 1 ? { port: port1, isConnected: isConnected1, setPort: setPort1, setIsConnected: setIsConnected1 } 
+                                       : { port: port2, isConnected: isConnected2, setPort: setPort2, setIsConnected: setIsConnected2 };
+    const portName = portNumber === 1 ? "COM3" : "COM6"; // For logging
+
+    if (currentPortState.port && currentPortState.isConnected) {
       try {
-        await port.close();
-        setPort(null); // Clear port state *before* setting disconnected
-        setIsConnected(false);
-        // Corrected: Use \n and keep string on one line
-        setResponse(prev => prev + '\nCOM Port Disconnected'); // Use functional update
+        await currentPortState.port.close();
+        currentPortState.setPort(null);
+        currentPortState.setIsConnected(false);
+        setResponse(prev => prev + `/n${portName} Port Disconnected`);
       } catch (error: any) {
-        setResponse(prev => prev + `\nError disconnecting: ${error.message}`); // Functional update
-
-        // Might still be connected or in weird state, try resetting UI
-        setPort(null);
-        setIsConnected(false);
+        setResponse(prev => prev + `/nError disconnecting ${portName}: ${error.message}`);
+        // Reset state even on error
+        currentPortState.setPort(null);
+        currentPortState.setIsConnected(false);
       } finally {
-         setIsBusy(false);
+        // setIsBusy(false);
       }
     } else {
-      // Connect logic
       if ('serial' in navigator) {
-        // @ts-ignore - navigator.serial is not fully typed in standard libs yet
         try {
-           // @ts-ignore
-           const newPort = await navigator.serial.requestPort();
-          await newPort.open({ baudRate: 9600 });
-          setPort(newPort); // Set port first
-          setIsConnected(true); // Then set connected
-          setResponse('COM Port Activated'); // Reset response log on new connection
-
+          const requestOptions: { filters?: SerialPortFilter[] } = {};
+          // Only add filters if portFilter is provided and has properties
+          if (portFilter && (portFilter.usbProductId || portFilter.usbVendorId)) {
+            requestOptions.filters = [portFilter];
+          }
           
-
+          // @ts-ignore
+          const newPort = await navigator.serial.requestPort(requestOptions);
+          await newPort.open({ baudRate: 9600 });
+          currentPortState.setPort(newPort);
+          currentPortState.setIsConnected(true);
+          setResponse(`${portName} Port Activated`); // Clear previous log for this port actions
         } catch (error: any) {
-          setResponse(prev => prev + `\nError connecting: ${error.message}`); // Functional update
-
-          setPort(null);
-          setIsConnected(false);
+          // Check if the error is due to user cancellation
+          if (error.name === 'NotFoundError' || error.message.includes('No port selected')) {
+            setResponse(prev => prev + `/n${portName} connection cancelled by user.`);
+          } else {
+            setResponse(prev => prev + `/nError connecting to ${portName}: ${error.message}`);
+          }
+          currentPortState.setPort(null);
+          currentPortState.setIsConnected(false);
         } finally {
-            setIsBusy(false);
+          // setIsBusy(false);
         }
       } else {
-        // Corrected: Use \n and keep string on one line
-        setResponse(prev => prev + '\nWeb Serial API is not supported in this browser.');
-        setIsBusy(false);
+        setResponse(prev => prev + '/nWeb Serial API is not supported in this browser.');
+        // setIsBusy(false);
       }
     }
   };
 
-  return { port, isConnected, activatePort };
+  return {
+    port1,
+    port2,
+    isConnected1,
+    isConnected2,
+    activatePort1: (portFilter?: SerialPortFilter) => activatePort(1, portFilter),
+    activatePort2: (portFilter?: SerialPortFilter) => activatePort(2, portFilter),
+  };
 };
 
-// Helper type for SerialPort if not globally available
 declare global {
     interface SerialPort extends EventTarget {
-        // Define methods and properties you use, e.g.:
         open(options: SerialOptions): Promise<void>;
         close(): Promise<void>;
-        // Add readable, writable streams if needed
         readable: ReadableStream<Uint8Array>;
         writable: WritableStream<Uint8Array>;
     }
 
     interface SerialOptions {
         baudRate: number;
-        // Add other options like dataBits, stopBits, parity, etc. if needed
     }
 
-    // Extend Navigator interface
     interface Navigator {
         serial: {
-            requestPort(options?: any): Promise<SerialPort>;
-            // Add getPorts() if needed
+            requestPort(options?: { filters?: SerialPortFilter[] }): Promise<SerialPort>;
         };
     }
 }
 
-// Export {} is needed if the file doesn't import/export anything else initially
-// to make it a module in TypeScript. It's not strictly necessary here
-// because we are exporting useComPort, but good practice.
 export {};
-
