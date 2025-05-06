@@ -3,7 +3,7 @@ import { useState } from 'react';
 
 // Define the shape of the props expected by the hook
 interface UseComPortProps {
-  setIsBusy: (isBusy: boolean) => void;
+  setIsBusy: (isBusy: boolean) => void; 
   setResponse: (updater: (prev: string) => string) => void;
   setCommandResponses: (responses: string[]) => void;
   sendAndRead: (port: SerialPort, command: string, responseUpdater: (updater: (prev: string) => string) => void) => Promise<string>;
@@ -15,8 +15,8 @@ interface UseComPortReturn {
   port2: SerialPort | null;
   isConnected1: boolean;
   isConnected2: boolean;
-  activatePort1: (portFilter?: SerialPortFilter) => Promise<void>; // portFilter is now optional
-  activatePort2: (portFilter?: SerialPortFilter) => Promise<void>; // portFilter is now optional
+  activatePort1: (portFilter?: SerialPortFilter) => Promise<void>;
+  activatePort2: (portFilter?: SerialPortFilter) => Promise<void>;
 }
 
 interface SerialPortFilter {
@@ -25,10 +25,8 @@ interface SerialPortFilter {
 }
 
 export const useComPort = ({
-  setIsBusy,
+  // setIsBusy, // Prop `setIsBusy` is not used in the hook as page.tsx handles individual port busy states.
   setResponse,
-  // setCommandResponses, // Not used directly in the hook for now
-  // sendAndRead, // Not used directly in the hook for now
 }: UseComPortProps): UseComPortReturn => {
   const [port1, setPort1] = useState<SerialPort | null>(null);
   const [port2, setPort2] = useState<SerialPort | null>(null);
@@ -36,55 +34,46 @@ export const useComPort = ({
   const [isConnected2, setIsConnected2] = useState(false);
 
   const activatePort = async (portNumber: number, portFilter?: SerialPortFilter) => {
-    // setIsBusy(true); // Busy state will be handled by the calling component (page.tsx)
-    let currentPortState = portNumber === 1 ? { port: port1, isConnected: isConnected1, setPort: setPort1, setIsConnected: setIsConnected1 } 
-                                       : { port: port2, isConnected: isConnected2, setPort: setPort2, setIsConnected: setIsConnected2 };
-    const portName = portNumber === 1 ? "COM3" : "COM6"; // For logging
+    let currentPortState = portNumber === 1 
+      ? { port: port1, isConnected: isConnected1, setPort: setPort1, setIsConnected: setIsConnected1 }
+      : { port: port2, isConnected: isConnected2, setPort: setPort2, setIsConnected: setIsConnected2 };
+    const portName = portNumber === 1 ? "COM3" : "COM6";
 
     if (currentPortState.port && currentPortState.isConnected) {
       try {
         await currentPortState.port.close();
         currentPortState.setPort(null);
         currentPortState.setIsConnected(false);
-        setResponse(prev => prev + `/n${portName} Port Disconnected`);
+        setResponse(prev => prev + `${String.fromCharCode(10)}${portName} Port Disconnected`);
       } catch (error: any) {
-        setResponse(prev => prev + `/nError disconnecting ${portName}: ${error.message}`);
-        // Reset state even on error
+        setResponse(prev => prev + `${String.fromCharCode(10)}Error disconnecting ${portName}: ${error.message}`);
         currentPortState.setPort(null);
         currentPortState.setIsConnected(false);
-      } finally {
-        // setIsBusy(false);
       }
     } else {
       if ('serial' in navigator) {
         try {
           const requestOptions: { filters?: SerialPortFilter[] } = {};
-          // Only add filters if portFilter is provided and has properties
           if (portFilter && (portFilter.usbProductId || portFilter.usbVendorId)) {
             requestOptions.filters = [portFilter];
           }
-          
           // @ts-ignore
           const newPort = await navigator.serial.requestPort(requestOptions);
           await newPort.open({ baudRate: 9600 });
           currentPortState.setPort(newPort);
           currentPortState.setIsConnected(true);
-          setResponse(`${portName} Port Activated`); // Clear previous log for this port actions
+          setResponse(prev => `${portName} Port Activated`); // Initial activation message doesn't need preceding newline
         } catch (error: any) {
-          // Check if the error is due to user cancellation
           if (error.name === 'NotFoundError' || error.message.includes('No port selected')) {
-            setResponse(prev => prev + `/n${portName} connection cancelled by user.`);
+            setResponse(prev => prev + `${String.fromCharCode(10)}${portName} connection cancelled by user.`);
           } else {
-            setResponse(prev => prev + `/nError connecting to ${portName}: ${error.message}`);
+            setResponse(prev => prev + `${String.fromCharCode(10)}Error connecting to ${portName}: ${error.message}`);
           }
           currentPortState.setPort(null);
           currentPortState.setIsConnected(false);
-        } finally {
-          // setIsBusy(false);
         }
       } else {
-        setResponse(prev => prev + '/nWeb Serial API is not supported in this browser.');
-        // setIsBusy(false);
+        setResponse(prev => prev + `${String.fromCharCode(10)}Web Serial API is not supported in this browser.`);
       }
     }
   };

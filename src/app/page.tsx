@@ -93,6 +93,7 @@ async function sendAndRead(
 }
 
 export default function Home() {
+  // Existing state
   const [command, setCommand] = useState('');
   const [response, setResponse] = useState('');
   const [commands, setCommands] = useState<QueuedCommand[]>([]);
@@ -102,8 +103,14 @@ export default function Home() {
   const [isPort2Busy, setIsPort2Busy] = useState(false);
   const [commandResponses, setCommandResponses] = useState<string[]>([]);
 
+  // New state for user parameters
+  const [nominalPower, setNominalPower] = useState('');
+  const [viMin, setViMin] = useState('');
+  const [viMax, setViMax] = useState('');
+  const [voNominal, setVoNominal] = useState('');
+
   const { port1, isConnected1, activatePort1, port2, isConnected2, activatePort2 } = useComPort({
-    setIsBusy: setIsBusy, // This global setIsBusy might be for the sendAll button
+    setIsBusy: setIsBusy,
     setResponse,
     setCommandResponses,
     sendAndRead, 
@@ -115,7 +122,7 @@ export default function Home() {
       return;
     }
     setCommands(prevCommands => [...prevCommands, { text: command, targetPort: selectedCommandPort }]);
-    setCommandResponses(prevResponses => [...prevResponses, '', '', '', '', '', '', '', '']);
+    setCommandResponses(prevResponses => [...prevResponses, ...Array(8).fill('')]);
     setCommand('');
   };
 
@@ -142,9 +149,10 @@ export default function Home() {
     }
     setIsBusy(true);
     const updatedResponses = [...commandResponses];
+
     for (let i = 0; i < commands.length; i++) {
       const cmdInfo = commands[i];
-      let targetPortSerial: SerialPort | null = null; // Renamed to avoid conflict with targetPort string
+      let targetPortSerial: SerialPort | null = null;
       let targetPortName: string = '';
 
       if (cmdInfo.targetPort === 'COM3') {
@@ -153,18 +161,18 @@ export default function Home() {
           targetPortName = 'COM3';
         } else {
           setResponse(prev => prev + `${String.fromCharCode(10)}Skipping command "${cmdInfo.text}": COM3 not active.`);
-          updatedResponses[8 * i] = 'Skipped (COM3 inactive)';
-          setCommandResponses([...updatedResponses]);
+          updatedResponses[i * 8] = 'Skipped (COM3 inactive)';
+          setCommandResponses([...updatedResponses]); 
           continue; 
         }
-      } else { // targetPort is 'COM6'
+      } else { 
         if (isConnected2 && port2) {
           targetPortSerial = port2;
           targetPortName = 'COM6';
         } else {
           setResponse(prev => prev + `${String.fromCharCode(10)}Skipping command "${cmdInfo.text}": COM6 not active.`);
-          updatedResponses[8 * i] = 'Skipped (COM6 inactive)';
-          setCommandResponses([...updatedResponses]);
+          updatedResponses[i * 8] = 'Skipped (COM6 inactive)';
+          setCommandResponses([...updatedResponses]); 
           continue; 
         }
       }
@@ -172,11 +180,53 @@ export default function Home() {
       setResponse(prev => prev + `${String.fromCharCode(10)}Sending to ${targetPortName}: "${cmdInfo.text}"`);
       try {
         const cmdResponse = await sendAndRead(targetPortSerial, cmdInfo.text, setResponse);
-        updatedResponses[8 * i] = cmdResponse;
+        updatedResponses[i * 8] = cmdResponse;
+
+        if (cmdInfo.text.endsWith('?')) {
+          const parts = cmdResponse.split(',').map(p => p.trim());
+          if (cmdInfo.targetPort === 'COM3') {
+            switch (cmdInfo.text) {
+              case 'MEAS:VOLT?':
+                if (parts.length > 0) updatedResponses[i * 8 + 1] = parts[0]; // Vi
+                break;
+              case 'MEAS:CURR?':
+                if (parts.length > 0) updatedResponses[i * 8 + 2] = parts[0]; // Ii
+                break;
+              case 'MEAS:POW?':
+                if (parts.length > 0) updatedResponses[i * 8 + 3] = parts[0]; // Pi
+                break;
+              case 'MEAS:ALL?':
+                if (parts.length > 0) updatedResponses[i * 8 + 1] = parts[0]; // Vi
+                if (parts.length > 1) updatedResponses[i * 8 + 2] = parts[1]; // Ii
+                if (parts.length > 2) updatedResponses[i * 8 + 3] = parts[2]; // Pi
+                break;
+            }
+          } else if (cmdInfo.targetPort === 'COM6') {
+            switch (cmdInfo.text) {
+              case 'MEAS:VOLT?':
+                if (parts.length > 0) updatedResponses[i * 8 + 4] = parts[0]; // Vo
+                break;
+              case 'MEAS:CURR?':
+                if (parts.length > 0) updatedResponses[i * 8 + 5] = parts[0]; // Io
+                break;
+              case 'MEAS:POW?':
+                if (parts.length > 0) updatedResponses[i * 8 + 6] = parts[0]; // Po
+                break;
+              case 'MEAS:ALL?':
+                if (parts.length > 0) updatedResponses[i * 8 + 4] = parts[0]; // Vo
+                if (parts.length > 1) updatedResponses[i * 8 + 5] = parts[1]; // Io
+                if (parts.length > 2) updatedResponses[i * 8 + 6] = parts[2]; // Po
+                break;
+            }
+          }
+        }
       } catch (error) {
-        updatedResponses[8 * i] = 'Error';
+        updatedResponses[i * 8] = 'Error';
+        for (let k = 1; k < 8; k++) {
+          updatedResponses[i * 8 + k] = ''; 
+        }
       }
-      setCommandResponses([...updatedResponses]);
+      setCommandResponses([...updatedResponses]); 
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
     setIsBusy(false);
@@ -185,7 +235,54 @@ export default function Home() {
   return (
     <div className="flex flex-col items-center justify-start min-h-screen p-8">
       <h1 className="text-2xl font-bold mb-4">DC Converter Tester V0</h1>
+      
+      {/* New section for User Parameters */}
+      <div className="w-full grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 border rounded-md">
+        <div>
+          <Label htmlFor="nominalPower" className="block text-sm font-medium text-foreground mb-1">Nominal Power (W)</Label>
+          <Input
+            id="nominalPower"
+            type="number" // Use type number for numeric input
+            placeholder="e.g., 100"
+            value={nominalPower}
+            onChange={(e) => setNominalPower(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="viMin" className="block text-sm font-medium text-foreground mb-1">Vi (min) (V)</Label>
+          <Input
+            id="viMin"
+            type="number"
+            placeholder="e.g., 9"
+            value={viMin}
+            onChange={(e) => setViMin(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="viMax" className="block text-sm font-medium text-foreground mb-1">Vi (Max) (V)</Label>
+          <Input
+            id="viMax"
+            type="number"
+            placeholder="e.g., 36"
+            value={viMax}
+            onChange={(e) => setViMax(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="voNominal" className="block text-sm font-medium text-foreground mb-1">Vo (Nominal) (V)</Label>
+          <Input
+            id="voNominal"
+            type="number"
+            placeholder="e.g., 12"
+            value={voNominal}
+            onChange={(e) => setVoNominal(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Existing UI sections */}
       <div className="w-full space-y-4">
+        {/* Command Input Section */}
         <div>
           <Label htmlFor="command" className="block text-sm font-medium text-foreground">
             Enter Command:
@@ -215,6 +312,7 @@ export default function Home() {
           </Button>
         </div>
 
+        {/* Command Queue Table */}
         {commands.length > 0 && (
           <div className="w-full mt-4">
             <Table>
@@ -223,7 +321,7 @@ export default function Home() {
                 <TableRow>
                   <TableHead className="w-[90px]">Resp</TableHead>
                   {["Vi", "Ii", "Pi", "Vo", "Io", "Po", "Eff"].map((label, i) => (
-                    <TableHead key={`data-header-${i}`} className="w-[50px]">{label}</TableHead>
+                    <TableHead key={`data-header-${i}`} className="w-[75px]">{label}</TableHead> 
                   ))}
                   <TableHead className="w-[120px]">Command</TableHead>
                   <TableHead className="w-[70px]">Port</TableHead>
@@ -234,11 +332,12 @@ export default function Home() {
                   <TableRow key={index}>
                     {Array.from({ length: 8 }).map((_, cellIndex) => (
                       <TableCell key={`cell-${index}-${cellIndex}`}>
-                        {cellIndex === 0 ? (
-                          <Input type="text" value={commandResponses[index * 8] || ''} readOnly className="w-[90px]" />
-                        ) : (
-                          <Input type="text" value="" readOnly className="w-[50px]" />
-                        )}
+                        <Input 
+                          type="text" 
+                          value={commandResponses[index * 8 + cellIndex] || ''} 
+                          readOnly 
+                          className={cellIndex === 0 ? "w-[90px]" : "w-[75px]"} 
+                        />
                       </TableCell>
                     ))}
                     <TableCell className="truncate" style={{ maxWidth: '120px' }}>{cmdInfo.text}</TableCell>
@@ -250,10 +349,12 @@ export default function Home() {
           </div>
         )}
 
+        {/* Send Button */}
         <Button onClick={handleSendMultipleCommands} className="mt-2 w-full" disabled={(!isConnected1 && !isConnected2) || isBusy || isPort1Busy || isPort2Busy}>
           {isBusy ? 'Sending Commands...' : 'Send All Commands from Queue'}
         </Button>
 
+        {/* Activation Buttons */}
         <div className="grid grid-cols-2 gap-4">
           <Button
             onClick={handleActivatePort1}
@@ -275,6 +376,7 @@ export default function Home() {
           </Button>
         </div>
 
+        {/* Response Log */}
         <div>
           <Label htmlFor="response" className="block text-sm font-medium text-foreground">
             Response Log:

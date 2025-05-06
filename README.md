@@ -14,3 +14,16 @@ git checkout 5dc7652
 Need Publish
 
 Deployed web address: https://studio--dc-converter-tester-v0.us-central1.hosted.app/
+
+
+When Commands are sent for commands ending with '?' will be a response as below:
+
+If the following commands sent to COM3 :
+
+response of MEAS:VOLT? is Vi response of MEAS:CURR? is Ii response of MEAS:POW? is Pi response of MEAS:ALL? are Vi,Ii,Pi together
+
+If the following commands sent to COM6 :
+
+response of MEAS:VOLT? is Vo response of MEAS:CURR? is Io response of MEAS:POW? is Po response of MEAS:ALL? are Vo,Io,Po together
+
+please put each related response also inside its box in front of the sent command
