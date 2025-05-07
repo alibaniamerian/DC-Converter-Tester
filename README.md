@@ -4,7 +4,8 @@ This is a NextJS starter in Firebase Studio.
 
 To get started, take a look at src/app/page.tsx.
 
-use String.fromCharCode(10) instead of '\n'
+use String.fromCharCode(10) instead of '
+'
 
 COM Port connection updated as an isolated Hook in the codes
 4/30/2025 3:06PM
@@ -14,6 +15,8 @@ git checkout 5dc7652
 Need Publish
 
 Deployed web address: https://studio--dc-converter-tester-v0.us-central1.hosted.app/
+
+Remote Git Repository: https://github.com/alibaniamerian/DC-Converter-Tester
 
 
 When Commands are sent for commands ending with '?' will be a response as below:
