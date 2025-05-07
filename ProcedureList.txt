@@ -1,0 +1,114 @@
+## DC Converter Tester Procedures List
+
+This document outlines the available procedures for the DC Converter Tester application.
+
+---
+
+### 1. `SwVin(Vs1, Vs2, Nsw)`
+
+Sweeps the input voltage (Vin) and takes measurements.
+
+**Parameters:**
+*   `Vs1`: Starting input voltage (Volts).
+    *   If empty, defaults to `Vi(min)` set in the User Parameters section of the application.
+    *   Must be a numeric value.
+*   `Vs2`: Ending input voltage (Volts).
+    *   If empty, defaults to `Vi(max)` set in the User Parameters section of the application.
+    *   Must be a numeric value.
+*   `Nsw`: Number of sweep steps.
+    *   If empty or less than 2, defaults to 2.
+    *   If greater than 20, capped at 20.
+    *   Must be an integer.
+
+**Command Sequence Generated (for each step `Vx` from `Vs1` to `Vs2`):**
+1.  `VOLT Vx` (Target: COM3) - Sets the input voltage.
+2.  `MEAS:VOLT?` (Target: COM3) - Measures Vi.
+3.  `MEAS:VOLT?` (Target: COM6) - Measures Vo.
+4.  `MEAS:CURR?` (Target: COM3) - Measures Ii.
+5.  `MEAS:CURR?` (Target: COM6) - Measures Io.
+
+**Example:** `SwVin(10, 20, 5)` - Sweeps Vin from 10V to 20V in 5 steps.
+
+---
+
+### 2. `SwIo(Is1, Is2, Nsw)`
+
+Sweeps the output current (Io) and takes measurements.
+
+**Parameters:**
+*   `Is1`: Starting output current (Amps).
+    *   If empty, defaults to 0 A.
+    *   Must be a numeric value.
+*   `Is2`: Ending output current (Amps).
+    *   If empty, defaults to `(Nominal Power) / (Vo (Nominal))` from User Parameters.
+    *   Requires `Nominal Power` and `Vo (Nominal)` to be set and valid, and `Vo (Nominal)` must not be zero if `Is2` is to be defaulted.
+    *   Must be a numeric value.
+*   `Nsw`: Number of sweep steps.
+    *   If empty or less than 2, defaults to 2.
+    *   If greater than 20, capped at 20.
+    *   Must be an integer.
+
+**Command Sequence Generated (for each step `Ix` from `Is1` to `Is2`):**
+1.  `CURR Ix` (Target: COM6) - Sets the output current.
+2.  `MEAS:VOLT?` (Target: COM3) - Measures Vi.
+3.  `MEAS:VOLT?` (Target: COM6) - Measures Vo.
+4.  `MEAS:CURR?` (Target: COM3) - Measures Ii.
+5.  `MEAS:CURR?` (Target: COM6) - Measures Io.
+
+**Example:** `SwIo(0.5, 2.5, 10)` - Sweeps Io from 0.5A to 2.5A in 10 steps.
+
+---
+
+### 3. `Pout(Is)`
+
+Sets an optional output current `Is`, measures output voltage and current, then calculates output power (Po).
+
+**Parameters:**
+*   `Is`: Target output current (Amps).
+    *   This parameter is optional. If empty, the `CURR Is` command is skipped.
+    *   If provided, it must be a numeric value. 
+
+**Command Sequence Generated:**
+1.  *(Optional)* `CURR IsValue` (Target: COM6) - Sets the specified output current `IsValue`. Only included if `Is` is provided and valid.
+2.  `MEAS:VOLT?` (Target: COM6) - Measures Vo.
+3.  `MEAS:CURR?` (Target: COM6, Meta: `calculatesPo: true`) - Measures Io.
+    *   **Post-processing:** After this command, `Po` is calculated as `Vo (from step 2) * Io (from step 3)` and displayed in the 'Po' column.
+
+**Example:**
+*   `Pout(1.5)` - Sets output current to 1.5A, then measures Vo, Io, and calculates Po.
+*   `Pout()` - Skips setting current, measures Vo, Io, and calculates Po based on the existing load current.
+
+---
+
+### 4. `Pin(Vs)`
+
+Sets an optional input voltage `Vs`, measures input voltage and current, then calculates input power (Pi).
+
+**Parameters:**
+*   `Vs`: Target input voltage (Volts).
+    *   This parameter is optional. If empty, the `VOLT Vs` command is skipped.
+    *   If provided, it must be a numeric value.
+    *   If provided, it MUST be within the range of `Vi(min)` and `Vi(max)` (inclusive) set in User Parameters. An error will be shown if `Vi(min)` or `Vi(max)` are not set, or if `Vs` is out of this range.
+
+**Command Sequence Generated:**
+1.  *(Optional)* `VOLT VsValue` (Target: COM3) - Sets the specified input voltage `VsValue`. Only included if `Vs` is provided and valid.
+2.  `MEAS:VOLT?` (Target: COM3) - Measures Vi.
+3.  `MEAS:CURR?` (Target: COM3, Meta: `calculatesPi: true`) - Measures Ii.
+    *   **Post-processing:** After this command, `Pi` is calculated as `Vi (from step 2) * Ii (from step 3)` and displayed in the 'Pi' column.
+
+**Example:**
+*   `Pin(12)` - Sets input voltage to 12V (if 12V is within Vi(min)/Vi(max) range), then measures Vi, Ii, and calculates Pi.
+*   `Pin()` - Skips setting voltage, measures Vi, Ii, and calculates Pi based on the existing input voltage.
+
+---
+
+### General Command Input (Legacy - Now Handled as Error for Procedure Input)
+
+Previously, text entered into the "Enter Procedure" field that did not match a specific procedure format was treated as a single command, using a radio button for port selection. 
+
+**Current Behavior:**
+The "Enter Procedure" input is now **strictly for defined procedures**. If the entered text does not match `SwVin(...)`, `SwIo(...)`, `Pout(...)`, or `Pin(...)`, an error message will be displayed in the Response Log. 
+
+For sending individual, non-procedure commands, please use the separate "Enter Command" input section, which retains its radio button for port selection.
+
+---

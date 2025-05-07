@@ -5,22 +5,24 @@ import React, { useState } from 'react';
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Plug } from 'lucide-react';
+import { Plug, Trash2 } from 'lucide-react';
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useComPort } from '../hooks/useComPort';
+import { useProcedure } from '../hooks/useProcedure'; 
 
 interface QueuedCommand {
   text: string;
   targetPort: 'COM3' | 'COM6';
+  meta?: { calculatesPo?: boolean; calculatesPi?: boolean };
 }
 
 async function sendAndRead(
   port: SerialPort | null,
   commandToSend: string,
   responseUpdater: React.Dispatch<React.SetStateAction<string>>,
-  timeoutMs: number = 2000,
+  timeoutMs: number, // Default removed, will be passed explicitly
   lineEnding: string = String.fromCharCode(10),
   responseDelimiter: string = String.fromCharCode(10)
 ): Promise<string> {
@@ -54,7 +56,7 @@ async function sendAndRead(
             reject(new Error(`Timeout: No data received for "${commandToSend}" within ${timeoutMs}ms`));
           }
         } else {
-          setTimeout(() => reject(new Error(`Read operation timed out after ${timeLeft}ms delay`)), timeLeft);
+          setTimeout(() => reject(new Error(`Read operation timed out for "${commandToSend}" after ${timeLeft}ms delay`)), timeLeft);
         }
       });
       const readChunkPromise = reader.read();
@@ -73,10 +75,11 @@ async function sendAndRead(
         }
       } catch (error) {
         if (error instanceof Error && error.message.startsWith('Timeout: No data received')) throw error;
-        if (incomingData.length > 0) {
-          readerDone = true; break;
+        // Handle other errors or cases where incomingData might be useful
+        if (incomingData.length > 0 && !(error instanceof Error && error.message.includes('timed out after'))) {
+            readerDone = true; break;
         } else {
-          throw error;
+            throw error;
         }
       }
     }
@@ -93,7 +96,6 @@ async function sendAndRead(
 }
 
 export default function Home() {
-  // Existing state
   const [command, setCommand] = useState('');
   const [response, setResponse] = useState('');
   const [commands, setCommands] = useState<QueuedCommand[]>([]);
@@ -103,18 +105,25 @@ export default function Home() {
   const [isPort2Busy, setIsPort2Busy] = useState(false);
   const [commandResponses, setCommandResponses] = useState<string[]>([]);
 
-  // New state for user parameters
+  // User Parameters State
   const [nominalPower, setNominalPower] = useState('');
   const [viMin, setViMin] = useState('');
   const [viMax, setViMax] = useState('');
   const [voNominal, setVoNominal] = useState('');
+  const [userTimeout, setUserTimeout] = useState<string>(''); // State for user-defined timeout
 
   const { port1, isConnected1, activatePort1, port2, isConnected2, activatePort2 } = useComPort({
     setIsBusy: setIsBusy,
     setResponse,
     setCommandResponses,
-    sendAndRead, 
+    sendAndRead, // sendAndRead will now get timeout from Home component
   });
+
+  const {
+    procedureText,
+    setProcedureText,
+    generateCommandsFromProcedure,
+  } = useProcedure(viMin, viMax, nominalPower, voNominal);
 
   const handleAddCommand = () => {
     if (!command.trim()) {
@@ -122,20 +131,52 @@ export default function Home() {
       return;
     }
     setCommands(prevCommands => [...prevCommands, { text: command, targetPort: selectedCommandPort }]);
-    setCommandResponses(prevResponses => [...prevResponses, ...Array(8).fill('')]);
+    setCommandResponses(prevResponses => [
+      ...prevResponses, 
+      ...Array(8).fill('')
+    ]);
     setCommand('');
   };
 
+  const handleAddProcedureToQueue = () => {
+    const { commands: procedureCommands, error } = generateCommandsFromProcedure();
+    if (error) {
+      setResponse(prev => prev + `${String.fromCharCode(10)}Procedure Error: ${error}`);
+      return;
+    }
+    if (procedureCommands.length === 0 && !procedureText.trim()){
+      setResponse(prev => prev + `${String.fromCharCode(10)}Please enter a procedure to add.`);
+      return;
+    }
+    if (procedureCommands.length === 0 && procedureText.trim()) {
+        setResponse(prev => prev + `${String.fromCharCode(10)}Procedure not recognized or generated no commands. Supported: SwVin, SwIo, Pout(Is), Pin(Vs).`);
+        return;
+    }
+    if (procedureCommands.length > 0) {
+        setCommands(prevCommands => [...prevCommands, ...procedureCommands]);
+        setCommandResponses(prevResponses => [
+          ...prevResponses, 
+          ...Array(procedureCommands.length * 8).fill('')
+        ]);
+        setProcedureText('');
+    }
+  };
+
+  const handleRemoveCommand = (indexToRemove: number) => {
+    setCommands(prevCommands => prevCommands.filter((_, index) => index !== indexToRemove));
+    setCommandResponses(prevResponses => {
+      const newResponses = [...prevResponses];
+      newResponses.splice(indexToRemove * 8, 8);
+      return newResponses;
+    });
+  };
+
   const handleActivatePort1 = async () => {
-    setIsPort1Busy(true);
-    await activatePort1({});
-    setIsPort1Busy(false);
+    setIsPort1Busy(true); await activatePort1({}); setIsPort1Busy(false);
   };
 
   const handleActivatePort2 = async () => {
-    setIsPort2Busy(true);
-    await activatePort2({}); 
-    setIsPort2Busy(false);
+    setIsPort2Busy(true); await activatePort2({}); setIsPort2Busy(false);
   };
 
   const handleSendMultipleCommands = async () => {
@@ -147,8 +188,14 @@ export default function Home() {
         setResponse(prev => prev + `${String.fromCharCode(10)}Neither COM3 nor COM6 is active. Please activate a port.`);
         return;
     }
+
+    let parsedTimeout = parseInt(userTimeout, 10);
+    if (userTimeout.trim() === '' || isNaN(parsedTimeout) || parsedTimeout <= 0) {
+      parsedTimeout = 1000; // Default to 1000ms if empty, not a number, or non-positive
+    }
+
     setIsBusy(true);
-    const updatedResponses = [...commandResponses];
+    let tempUpdatedResponses = [...commandResponses];
 
     for (let i = 0; i < commands.length; i++) {
       const cmdInfo = commands[i];
@@ -156,78 +203,91 @@ export default function Home() {
       let targetPortName: string = '';
 
       if (cmdInfo.targetPort === 'COM3') {
-        if (isConnected1 && port1) {
-          targetPortSerial = port1;
-          targetPortName = 'COM3';
-        } else {
-          setResponse(prev => prev + `${String.fromCharCode(10)}Skipping command "${cmdInfo.text}": COM3 not active.`);
-          updatedResponses[i * 8] = 'Skipped (COM3 inactive)';
-          setCommandResponses([...updatedResponses]); 
+        if (isConnected1 && port1) { targetPortSerial = port1; targetPortName = 'COM3'; }
+        else { 
+          setResponse(prev => prev + `${String.fromCharCode(10)}Skipping cmd "${cmdInfo.text}": COM3 not active.`);
+          tempUpdatedResponses[i * 8] = 'Skipped (COM3 inactive)'; 
+          setCommandResponses([...tempUpdatedResponses]); 
           continue; 
         }
-      } else { 
-        if (isConnected2 && port2) {
-          targetPortSerial = port2;
-          targetPortName = 'COM6';
-        } else {
-          setResponse(prev => prev + `${String.fromCharCode(10)}Skipping command "${cmdInfo.text}": COM6 not active.`);
-          updatedResponses[i * 8] = 'Skipped (COM6 inactive)';
-          setCommandResponses([...updatedResponses]); 
+      } else { // COM6
+        if (isConnected2 && port2) { targetPortSerial = port2; targetPortName = 'COM6'; }
+        else { 
+          setResponse(prev => prev + `${String.fromCharCode(10)}Skipping cmd "${cmdInfo.text}": COM6 not active.`);
+          tempUpdatedResponses[i * 8] = 'Skipped (COM6 inactive)'; 
+          setCommandResponses([...tempUpdatedResponses]); 
           continue; 
         }
       }
       
       setResponse(prev => prev + `${String.fromCharCode(10)}Sending to ${targetPortName}: "${cmdInfo.text}"`);
       try {
-        const cmdResponse = await sendAndRead(targetPortSerial, cmdInfo.text, setResponse);
-        updatedResponses[i * 8] = cmdResponse;
+        // Pass the parsedTimeout to sendAndRead
+        const cmdResponse = await sendAndRead(targetPortSerial, cmdInfo.text, setResponse, parsedTimeout);
+        tempUpdatedResponses[i * 8] = cmdResponse; // Main response
 
         if (cmdInfo.text.endsWith('?')) {
           const parts = cmdResponse.split(',').map(p => p.trim());
           if (cmdInfo.targetPort === 'COM3') {
             switch (cmdInfo.text) {
               case 'MEAS:VOLT?':
-                if (parts.length > 0) updatedResponses[i * 8 + 1] = parts[0]; // Vi
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 1] = parts[0]; // Vi
                 break;
               case 'MEAS:CURR?':
-                if (parts.length > 0) updatedResponses[i * 8 + 2] = parts[0]; // Ii
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 2] = parts[0]; // Ii
+                if (cmdInfo.meta?.calculatesPi) {
+                  if (i > 0 && commands[i-1].text === 'MEAS:VOLT?' && commands[i-1].targetPort === 'COM3') {
+                     const prevVi = parseFloat(tempUpdatedResponses[(i-1) * 8 + 1]); 
+                     const currentIi = parseFloat(parts[0]); 
+                     if (!isNaN(prevVi) && !isNaN(currentIi)) {
+                       tempUpdatedResponses[i * 8 + 3] = (prevVi * currentIi).toFixed(2); // Pi
+                     }
+                  }
+                }
                 break;
               case 'MEAS:POW?':
-                if (parts.length > 0) updatedResponses[i * 8 + 3] = parts[0]; // Pi
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 3] = parts[0]; // Pi
                 break;
               case 'MEAS:ALL?':
-                if (parts.length > 0) updatedResponses[i * 8 + 1] = parts[0]; // Vi
-                if (parts.length > 1) updatedResponses[i * 8 + 2] = parts[1]; // Ii
-                if (parts.length > 2) updatedResponses[i * 8 + 3] = parts[2]; // Pi
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 1] = parts[0]; // Vi
+                if (parts.length > 1) tempUpdatedResponses[i * 8 + 2] = parts[1]; // Ii
+                if (parts.length > 2) tempUpdatedResponses[i * 8 + 3] = parts[2]; // Pi
                 break;
             }
           } else if (cmdInfo.targetPort === 'COM6') {
             switch (cmdInfo.text) {
               case 'MEAS:VOLT?':
-                if (parts.length > 0) updatedResponses[i * 8 + 4] = parts[0]; // Vo
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 4] = parts[0]; // Vo
                 break;
               case 'MEAS:CURR?':
-                if (parts.length > 0) updatedResponses[i * 8 + 5] = parts[0]; // Io
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 5] = parts[0]; // Io
+                if (cmdInfo.meta?.calculatesPo) {
+                  if (i > 0 && commands[i-1].text === 'MEAS:VOLT?' && commands[i-1].targetPort === 'COM6') {
+                     const prevVo = parseFloat(tempUpdatedResponses[(i-1) * 8 + 4]); 
+                     const currentIo = parseFloat(parts[0]); 
+                     if (!isNaN(prevVo) && !isNaN(currentIo)) {
+                       tempUpdatedResponses[i * 8 + 6] = (prevVo * currentIo).toFixed(2); // Po
+                     }
+                  }
+                }
                 break;
               case 'MEAS:POW?':
-                if (parts.length > 0) updatedResponses[i * 8 + 6] = parts[0]; // Po
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 6] = parts[0]; // Po
                 break;
               case 'MEAS:ALL?':
-                if (parts.length > 0) updatedResponses[i * 8 + 4] = parts[0]; // Vo
-                if (parts.length > 1) updatedResponses[i * 8 + 5] = parts[1]; // Io
-                if (parts.length > 2) updatedResponses[i * 8 + 6] = parts[2]; // Po
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 4] = parts[0]; // Vo
+                if (parts.length > 1) tempUpdatedResponses[i * 8 + 5] = parts[1]; // Io
+                if (parts.length > 2) tempUpdatedResponses[i * 8 + 6] = parts[2]; // Po
                 break;
             }
           }
         }
       } catch (error) {
-        updatedResponses[i * 8] = 'Error';
-        for (let k = 1; k < 8; k++) {
-          updatedResponses[i * 8 + k] = ''; 
-        }
+        tempUpdatedResponses[i * 8] = 'Error';
+        for (let k = 1; k < 8; k++) tempUpdatedResponses[i * 8 + k] = ''; 
       }
-      setCommandResponses([...updatedResponses]); 
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      setCommandResponses([...tempUpdatedResponses]); 
+      await new Promise(resolve => setTimeout(resolve, 2000)); // This is the delay BETWEEN commands
     }
     setIsBusy(false);
   };
@@ -236,57 +296,56 @@ export default function Home() {
     <div className="flex flex-col items-center justify-start min-h-screen p-8">
       <h1 className="text-2xl font-bold mb-4">DC Converter Tester V0</h1>
       
-      {/* New section for User Parameters */}
-      <div className="w-full grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 border rounded-md">
+      {/* User Parameters Section - Added Command Timeout input */}
+      <div className="w-full grid grid-cols-2 md:grid-cols-5 gap-4 mb-6 p-4 border rounded-md">
         <div>
           <Label htmlFor="nominalPower" className="block text-sm font-medium text-foreground mb-1">Nominal Power (W)</Label>
-          <Input
-            id="nominalPower"
-            type="number" // Use type number for numeric input
-            placeholder="e.g., 100"
-            value={nominalPower}
-            onChange={(e) => setNominalPower(e.target.value)}
-          />
+          <Input id="nominalPower" type="number" placeholder="e.g., 100" value={nominalPower} onChange={(e) => setNominalPower(e.target.value)} />
         </div>
         <div>
           <Label htmlFor="viMin" className="block text-sm font-medium text-foreground mb-1">Vi (min) (V)</Label>
-          <Input
-            id="viMin"
-            type="number"
-            placeholder="e.g., 9"
-            value={viMin}
-            onChange={(e) => setViMin(e.target.value)}
-          />
+          <Input id="viMin" type="number" placeholder="e.g., 9" value={viMin} onChange={(e) => setViMin(e.target.value)} />
         </div>
         <div>
           <Label htmlFor="viMax" className="block text-sm font-medium text-foreground mb-1">Vi (Max) (V)</Label>
-          <Input
-            id="viMax"
-            type="number"
-            placeholder="e.g., 36"
-            value={viMax}
-            onChange={(e) => setViMax(e.target.value)}
-          />
+          <Input id="viMax" type="number" placeholder="e.g., 36" value={viMax} onChange={(e) => setViMax(e.target.value)} />
         </div>
         <div>
           <Label htmlFor="voNominal" className="block text-sm font-medium text-foreground mb-1">Vo (Nominal) (V)</Label>
-          <Input
-            id="voNominal"
-            type="number"
-            placeholder="e.g., 12"
-            value={voNominal}
-            onChange={(e) => setVoNominal(e.target.value)}
+          <Input id="voNominal" type="number" placeholder="e.g., 12" value={voNominal} onChange={(e) => setVoNominal(e.target.value)} />
+        </div>
+        <div>
+          <Label htmlFor="userTimeout" className="block text-sm font-medium text-foreground mb-1">Cmd Timeout (ms)</Label>
+          <Input 
+            id="userTimeout" 
+            type="number" 
+            placeholder="e.g., 2000 (default 1000)" 
+            value={userTimeout} 
+            onChange={(e) => setUserTimeout(e.target.value)} 
           />
         </div>
       </div>
 
-      {/* Existing UI sections */}
       <div className="w-full space-y-4">
-        {/* Command Input Section */}
         <div>
-          <Label htmlFor="command" className="block text-sm font-medium text-foreground">
-            Enter Command:
-          </Label>
+          <Label htmlFor="procedure" className="block text-sm font-medium text-foreground">Enter Procedure:</Label>
+          <div className="flex items-center space-x-4 mt-1">
+            <Input
+              id="procedure"
+              placeholder="e.g., SwVin(10,20,5), Pin(12), Pout()"
+              value={procedureText}
+              onChange={(e) => setProcedureText(e.target.value)}
+              className="flex-grow"
+              disabled={isPort1Busy || isPort2Busy || isBusy}
+            />
+          </div>
+          <Button onClick={handleAddProcedureToQueue} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>
+            Add Procedure to Queue
+          </Button>
+        </div>
+
+        <div>
+          <Label htmlFor="command" className="block text-sm font-medium text-foreground">Enter Command:</Label>
           <div className="flex items-center space-x-4 mt-1">
             <Input
               id="command"
@@ -298,21 +357,16 @@ export default function Home() {
             />
             <RadioGroup defaultValue="COM3" value={selectedCommandPort} onValueChange={(value: 'COM3' | 'COM6') => setSelectedCommandPort(value)} className="flex items-center">
               <div className="flex items-center space-x-2">
-                <RadioGroupItem value="COM3" id="com3" />
-                <Label htmlFor="com3">COM3</Label>
+                <RadioGroupItem value="COM3" id="com3" /><Label htmlFor="com3">COM3</Label>
               </div>
               <div className="flex items-center space-x-2">
-                <RadioGroupItem value="COM6" id="com6" />
-                <Label htmlFor="com6">COM6</Label>
+                <RadioGroupItem value="COM6" id="com6" /><Label htmlFor="com6">COM6</Label>
               </div>
             </RadioGroup>
           </div>
-          <Button onClick={handleAddCommand} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>
-            Add Command to Queue
-          </Button>
+          <Button onClick={handleAddCommand} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>Add Command to Queue</Button>
         </div>
 
-        {/* Command Queue Table */}
         {commands.length > 0 && (
           <div className="w-full mt-4">
             <Table>
@@ -320,11 +374,10 @@ export default function Home() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[90px]">Resp</TableHead>
-                  {["Vi", "Ii", "Pi", "Vo", "Io", "Po", "Eff"].map((label, i) => (
-                    <TableHead key={`data-header-${i}`} className="w-[75px]">{label}</TableHead> 
-                  ))}
+                  {["Vi", "Ii", "Pi", "Vo", "Io", "Po", "Eff"].map((label, i) => (<TableHead key={`data-header-${i}`} className="w-[75px]">{label}</TableHead>))}
                   <TableHead className="w-[120px]">Command</TableHead>
                   <TableHead className="w-[70px]">Port</TableHead>
+                  <TableHead className="w-[80px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -332,16 +385,21 @@ export default function Home() {
                   <TableRow key={index}>
                     {Array.from({ length: 8 }).map((_, cellIndex) => (
                       <TableCell key={`cell-${index}-${cellIndex}`}>
-                        <Input 
-                          type="text" 
-                          value={commandResponses[index * 8 + cellIndex] || ''} 
-                          readOnly 
-                          className={cellIndex === 0 ? "w-[90px]" : "w-[75px]"} 
-                        />
+                        <Input type="text" value={commandResponses[index * 8 + cellIndex] || ''} readOnly className={cellIndex === 0 ? "w-[90px]" : "w-[75px]"} />
                       </TableCell>
                     ))}
                     <TableCell className="truncate" style={{ maxWidth: '120px' }}>{cmdInfo.text}</TableCell>
                     <TableCell>{cmdInfo.targetPort}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleRemoveCommand(index)}
+                        disabled={isBusy || isPort1Busy || isPort2Busy}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" /> Remove
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -349,45 +407,24 @@ export default function Home() {
           </div>
         )}
 
-        {/* Send Button */}
-        <Button onClick={handleSendMultipleCommands} className="mt-2 w-full" disabled={(!isConnected1 && !isConnected2) || isBusy || isPort1Busy || isPort2Busy}>
+        <Button onClick={handleSendMultipleCommands} className="mt-2 w-full" disabled={(!isConnected1 && !isConnected2) || isBusy || isPort1Busy || isPort2Busy || commands.length === 0}>
           {isBusy ? 'Sending Commands...' : 'Send All Commands from Queue'}
         </Button>
 
-        {/* Activation Buttons */}
         <div className="grid grid-cols-2 gap-4">
-          <Button
-            onClick={handleActivatePort1}
-            variant="outline"
-            className="w-full"
-            disabled={isPort1Busy || isPort2Busy || (isConnected2 && !isConnected1) || isBusy}
-          >
+          <Button onClick={handleActivatePort1} variant="outline" className="w-full" disabled={isPort1Busy || isPort2Busy || (isConnected2 && !isConnected1) || isBusy}>
             {isPort1Busy ? (isConnected1 ? 'Disconnecting COM3...' : 'Connecting COM3...') : (isConnected1 ? 'Deactivate COM3 Port' : 'Activate COM3 Port')}
             <Plug className="ml-2 h-4 w-4" />
           </Button>
-          <Button
-            onClick={handleActivatePort2}
-            variant="outline"
-            className="w-full"
-            disabled={isPort2Busy || isPort1Busy || (isConnected1 && !isConnected2) || isBusy}
-          >
+          <Button onClick={handleActivatePort2} variant="outline" className="w-full" disabled={isPort2Busy || isPort1Busy || (isConnected1 && !isConnected2) || isBusy}>
             {isPort2Busy ? (isConnected2 ? 'Disconnecting COM6...' : 'Connecting COM6...') : (isConnected2 ? 'Deactivate COM6 Port' : 'Activate COM6 Port')}
             <Plug className="ml-2 h-4 w-4" />
           </Button>
         </div>
 
-        {/* Response Log */}
         <div>
-          <Label htmlFor="response" className="block text-sm font-medium text-foreground">
-            Response Log:
-          </Label>
-          <Textarea
-            id="response"
-            placeholder="Response log will be displayed here"
-            value={response} 
-            readOnly
-            className="mt-1 h-60 resize-none"
-          />
+          <Label htmlFor="response" className="block text-sm font-medium text-foreground">Response Log:</Label>
+          <Textarea id="response" placeholder="Response log will be displayed here" value={response} readOnly className="mt-1 h-60 resize-none" />
         </div>
       </div>
     </div>
