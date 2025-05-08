@@ -1,7 +1,7 @@
 "use client";
 /// <reference lib="dom" />
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -18,13 +18,14 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-} from 'recharts'; // Added recharts imports
+} from 'recharts';
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle
-} from "@/components/ui/card"; // Added Card imports for styling
+} from "@/components/ui/card";
 import {
-  ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent
-} from "@/components/ui/chart"; // Added Chart components
+  ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent,
+  type ChartConfig, // Import ChartConfig type
+} from "@/components/ui/chart";
 
 interface QueuedCommand {
   text: string;
@@ -32,16 +33,27 @@ interface QueuedCommand {
   meta?: { calculatesPo?: boolean; calculatesPi?: boolean; calculatesEff?: boolean };
 }
 
-interface EffPoDataPoint {
+// Interface for the transformed chart data structure
+interface MultiLineChartDataPoint {
   po: number;
-  eff: number;
+  [key: string]: number | undefined; // Keys like "eff_12.1", "eff_18.2"
 }
+
+// Define a list of colors for the chart lines
+const lineColors = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))",
+  // Add more colors if needed
+];
 
 async function sendAndRead(
   port: SerialPort | null,
   commandToSend: string,
   responseUpdater: React.Dispatch<React.SetStateAction<string>>,
-  timeoutMs: number, 
+  timeoutMs: number,
   lineEnding: string = String.fromCharCode(10),
   responseDelimiter: string = String.fromCharCode(10)
 ): Promise<string> {
@@ -95,9 +107,9 @@ async function sendAndRead(
       } catch (error) {
         if (error instanceof Error && error.message.startsWith('Timeout: No data received')) throw error;
         if (incomingData.length > 0 && !(error instanceof Error && error.message.includes('timed out after'))) {
-            readerDone = true; break;
+          readerDone = true; break;
         } else {
-            throw error;
+          throw error;
         }
       }
     }
@@ -122,7 +134,10 @@ export default function Home() {
   const [isPort1Busy, setIsPort1Busy] = useState(false);
   const [isPort2Busy, setIsPort2Busy] = useState(false);
   const [commandResponses, setCommandResponses] = useState<string[]>([]);
-  const [effPoChartData, setEffPoChartData] = useState<EffPoDataPoint[]>([]); // State for chart data
+  // Updated state for chart data and config
+  const [chartData, setChartData] = useState<MultiLineChartDataPoint[]>([]);
+  const [chartConfig, setChartConfig] = useState<ChartConfig>({});
+  const responseLogRef = useRef<HTMLTextAreaElement>(null);
 
   // User Parameters State
   const [nominalPower, setNominalPower] = useState('');
@@ -144,6 +159,12 @@ export default function Home() {
     generateCommandsFromProcedure,
   } = useProcedure(viMin, viMax, nominalPower, voNominal);
 
+  useEffect(() => {
+    if (responseLogRef.current) {
+      responseLogRef.current.scrollTop = responseLogRef.current.scrollHeight;
+    }
+  }, [response]);
+
   const handleAddCommand = () => {
     if (!command.trim()) {
       setResponse(prev => prev + `${String.fromCharCode(10)}Please enter a command to send.`);
@@ -151,7 +172,7 @@ export default function Home() {
     }
     setCommands(prevCommands => [...prevCommands, { text: command, targetPort: selectedCommandPort }]);
     setCommandResponses(prevResponses => [
-      ...prevResponses, 
+      ...prevResponses,
       ...Array(8).fill('')
     ]);
     setCommand('');
@@ -163,21 +184,21 @@ export default function Home() {
       setResponse(prev => prev + `${String.fromCharCode(10)}Procedure Error: ${error}`);
       return;
     }
-    if (procedureCommands.length === 0 && !procedureText.trim()){
+    if (procedureCommands.length === 0 && !procedureText.trim()) {
       setResponse(prev => prev + `${String.fromCharCode(10)}Please enter a procedure to add.`);
       return;
     }
     if (procedureCommands.length === 0 && procedureText.trim()) {
-        setResponse(prev => prev + `${String.fromCharCode(10)}Procedure not recognized or generated no commands. Supported: SwVin, SwIo, Pout(Is), Pin(Vs), SwPo.`);
-        return;
+      setResponse(prev => prev + `${String.fromCharCode(10)}Procedure not recognized or generated no commands. Supported: SwVin, SwIo, SwPo, SwPoVi, Pout(Is), Pin(Vs).`);
+      return;
     }
     if (procedureCommands.length > 0) {
-        setCommands(prevCommands => [...prevCommands, ...procedureCommands]);
-        setCommandResponses(prevResponses => [
-          ...prevResponses, 
-          ...Array(procedureCommands.length * 8).fill('')
-        ]);
-        setProcedureText('');
+      setCommands(prevCommands => [...prevCommands, ...procedureCommands]);
+      setCommandResponses(prevResponses => [
+        ...prevResponses,
+        ...Array(procedureCommands.length * 8).fill('')
+      ]);
+      setProcedureText('');
     }
   };
 
@@ -204,8 +225,8 @@ export default function Home() {
       return;
     }
     if (!isConnected1 && !isConnected2) {
-        setResponse(prev => prev + `${String.fromCharCode(10)}Neither COM3 nor COM6 is active. Please activate a port.`);
-        return;
+      setResponse(prev => prev + `${String.fromCharCode(10)}Neither COM3 nor COM6 is active. Please activate a port.`);
+      return;
     }
 
     let parsedTimeout = parseInt(userTimeout, 10);
@@ -214,8 +235,12 @@ export default function Home() {
     }
 
     setIsBusy(true);
+    setChartData([]); // Clear previous chart data
+    setChartConfig({}); // Clear previous chart config
     let tempUpdatedResponses = [...commandResponses];
-    const newChartData: EffPoDataPoint[] = []; // Initialize chart data collector
+    let collectedData: Record<number, { [viKey: string]: number }> = {}; // { poValue: { eff_vi1: effVal1, eff_vi2: effVal2 } }
+    let uniqueViKeys = new Set<string>();
+    let lastMeasuredVi: number | undefined = undefined;
 
     for (let i = 0; i < commands.length; i++) {
       const cmdInfo = commands[i];
@@ -224,22 +249,22 @@ export default function Home() {
 
       if (cmdInfo.targetPort === 'COM3') {
         if (isConnected1 && port1) { targetPortSerial = port1; targetPortName = 'COM3'; }
-        else { 
+        else {
           setResponse(prev => prev + `${String.fromCharCode(10)}Skipping cmd "${cmdInfo.text}": COM3 not active.`);
-          tempUpdatedResponses[i * 8] = 'Skipped (COM3 inactive)'; 
-          setCommandResponses([...tempUpdatedResponses]); 
-          continue; 
+          tempUpdatedResponses[i * 8] = 'Skipped (COM3 inactive)';
+          setCommandResponses([...tempUpdatedResponses]);
+          continue;
         }
       } else { // COM6
         if (isConnected2 && port2) { targetPortSerial = port2; targetPortName = 'COM6'; }
-        else { 
+        else {
           setResponse(prev => prev + `${String.fromCharCode(10)}Skipping cmd "${cmdInfo.text}": COM6 not active.`);
-          tempUpdatedResponses[i * 8] = 'Skipped (COM6 inactive)'; 
-          setCommandResponses([...tempUpdatedResponses]); 
-          continue; 
+          tempUpdatedResponses[i * 8] = 'Skipped (COM6 inactive)';
+          setCommandResponses([...tempUpdatedResponses]);
+          continue;
         }
       }
-      
+
       setResponse(prev => prev + `${String.fromCharCode(10)}Sending to ${targetPortName}: "${cmdInfo.text}"`);
       try {
         const cmdResponse = await sendAndRead(targetPortSerial, cmdInfo.text, setResponse, parsedTimeout);
@@ -250,20 +275,30 @@ export default function Home() {
           if (cmdInfo.targetPort === 'COM3') {
             switch (cmdInfo.text) {
               case 'MEAS:VOLT?':
-                if (parts.length > 0) tempUpdatedResponses[i * 8 + 1] = parts[0]; // Vi
+                if (parts.length > 0) {
+                  tempUpdatedResponses[i * 8 + 1] = parts[0]; // Vi
+                  lastMeasuredVi = parseFloat(parts[0]); // Store the last measured Vi
+                  if (isNaN(lastMeasuredVi)) lastMeasuredVi = undefined;
+                }
                 break;
               case 'MEAS:CURR?':
                 if (parts.length > 0) tempUpdatedResponses[i * 8 + 2] = parts[0]; // Ii
                 if (cmdInfo.meta?.calculatesPi) {
-                  let prevViStr = '';
-                  for (let k = i - 1; k >= 0; k--) {
-                    if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM3') {
-                      prevViStr = tempUpdatedResponses[k * 8 + 1];
-                      break;
-                    }
+                  // Use lastMeasuredVi if available, otherwise search backwards
+                  let viStrToUse = '';
+                  if (lastMeasuredVi !== undefined && commands[i-1]?.text === 'MEAS:VOLT?' && commands[i-1]?.targetPort === 'COM3') {
+                     viStrToUse = lastMeasuredVi.toString();
+                  } else {
+                     // Fallback search if structure deviates
+                     for (let k = i - 1; k >= 0; k--) {
+                       if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM3') {
+                         viStrToUse = tempUpdatedResponses[k * 8 + 1];
+                         break;
+                       }
+                     }
                   }
-                  const prevVi = parseFloat(prevViStr);
-                  const currentIi = parseFloat(parts[0]); 
+                  const prevVi = parseFloat(viStrToUse);
+                  const currentIi = parseFloat(parts[0]);
                   if (!isNaN(prevVi) && !isNaN(currentIi)) {
                     tempUpdatedResponses[i * 8 + 3] = (prevVi * currentIi).toFixed(2); // Pi
                   }
@@ -273,7 +308,11 @@ export default function Home() {
                 if (parts.length > 0) tempUpdatedResponses[i * 8 + 3] = parts[0]; // Pi
                 break;
               case 'MEAS:ALL?':
-                if (parts.length > 0) tempUpdatedResponses[i * 8 + 1] = parts[0]; // Vi
+                if (parts.length > 0) {
+                  tempUpdatedResponses[i * 8 + 1] = parts[0]; // Vi
+                  lastMeasuredVi = parseFloat(parts[0]); // Store the last measured Vi from MEAS:ALL?
+                  if (isNaN(lastMeasuredVi)) lastMeasuredVi = undefined;
+                }
                 if (parts.length > 1) tempUpdatedResponses[i * 8 + 2] = parts[1]; // Ii
                 if (parts.length > 2) tempUpdatedResponses[i * 8 + 3] = parts[2]; // Pi
                 break;
@@ -286,6 +325,9 @@ export default function Home() {
               case 'MEAS:CURR?':
                 if (parts.length > 0) tempUpdatedResponses[i * 8 + 5] = parts[0]; // Io
                 let poVal: number | undefined = undefined;
+                let effVal: number | undefined = undefined;
+                const currentIo = parseFloat(parts[0]);
+
                 if (cmdInfo.meta?.calculatesPo) {
                   let prevVoStr = '';
                   for (let k = i - 1; k >= 0; k--) {
@@ -294,37 +336,38 @@ export default function Home() {
                       break;
                     }
                   }
-                  const prevVo = parseFloat(prevVoStr); 
-                  const currentIo = parseFloat(parts[0]); 
+                  const prevVo = parseFloat(prevVoStr);
                   if (!isNaN(prevVo) && !isNaN(currentIo)) {
                     poVal = parseFloat((prevVo * currentIo).toFixed(2));
                     tempUpdatedResponses[i * 8 + 6] = poVal.toString(); // Po
                   }
                 }
-                if (cmdInfo.meta?.calculatesEff) {
-                  let prevViStr = '';
-                  let prevVoStrPo = ''; 
-                  for (let k = i - 1; k >= 0; k--) {
-                    if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM3') {
-                      prevViStr = tempUpdatedResponses[k * 8 + 1]; 
-                    }
-                    if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM6') {
-                      prevVoStrPo = tempUpdatedResponses[k * 8 + 4];
-                    }
-                    if (prevViStr && prevVoStrPo) break; 
-                  }
-                  const prevVi = parseFloat(prevViStr);
-                  const prevVo = parseFloat(prevVoStrPo);
-                  let effVal: number | undefined = undefined;
-                  if (!isNaN(prevVi) && !isNaN(prevVo) && prevVi !== 0) {
-                    effVal = parseFloat((prevVo / prevVi).toFixed(3));
-                    tempUpdatedResponses[i * 8 + 7] = effVal.toString(); // Eff
-                  }
-                  // Collect data for chart
-                  if (poVal !== undefined && effVal !== undefined) {
-                    newChartData.push({ po: poVal, eff: effVal });
-                  }
+
+                if (cmdInfo.meta?.calculatesEff && lastMeasuredVi !== undefined) {
+                   let prevVoStrPo = ''; 
+                   for (let k = i - 1; k >= 0; k--) {
+                     if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM6') {
+                       prevVoStrPo = tempUpdatedResponses[k * 8 + 4];
+                       break; 
+                     }
+                   }
+                   const prevVo = parseFloat(prevVoStrPo);
+                   if (!isNaN(lastMeasuredVi) && !isNaN(prevVo) && lastMeasuredVi !== 0) {
+                     effVal = parseFloat((prevVo / lastMeasuredVi).toFixed(3));
+                     tempUpdatedResponses[i * 8 + 7] = effVal.toString(); // Eff
+                   }
+                   
+                   // Collect data for chart
+                   if (poVal !== undefined && effVal !== undefined && lastMeasuredVi !== undefined) {
+                     const viKey = `eff_${lastMeasuredVi.toFixed(1)}`; // Use 1 decimal place for key stability
+                     uniqueViKeys.add(viKey);
+                     if (!collectedData[poVal]) {
+                       collectedData[poVal] = {};
+                     }
+                     collectedData[poVal][viKey] = effVal;
+                   }
                 }
+                lastMeasuredVi = undefined; // Reset lastMeasuredVi after it's used for Eff calculation
                 break;
               case 'MEAS:POW?':
                 if (parts.length > 0) tempUpdatedResponses[i * 8 + 6] = parts[0]; // Po
@@ -339,22 +382,33 @@ export default function Home() {
         }
       } catch (error) {
         tempUpdatedResponses[i * 8] = 'Error';
-        for (let k = 1; k < 8; k++) tempUpdatedResponses[i * 8 + k] = ''; 
+        for (let k = 1; k < 8; k++) tempUpdatedResponses[i * 8 + k] = '';
       }
-      setCommandResponses([...tempUpdatedResponses]); 
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      setCommandResponses([...tempUpdatedResponses]);
+      await new Promise(resolve => setTimeout(resolve, 100)); // Reduced delay slightly
     }
-    // Sort data by Po for correct line chart rendering
-    newChartData.sort((a, b) => a.po - b.po);
-    setEffPoChartData(newChartData);
-    setIsBusy(false);
-  };
 
-  const chartConfig = {
-    eff: {
-      label: "Efficiency",
-      color: "hsl(var(--chart-1))",
-    },
+    // --- Transform collected data for Recharts ---
+    const transformedData: MultiLineChartDataPoint[] = Object.entries(collectedData)
+      .map(([poStr, viEffMap]) => ({
+        po: parseFloat(poStr),
+        ...viEffMap,
+      }))
+      .sort((a, b) => a.po - b.po); // Sort by Po
+
+    // --- Generate Chart Config ---    
+    const newChartConfig: ChartConfig = {};
+    Array.from(uniqueViKeys).sort((a, b) => parseFloat(a.split('_')[1]) - parseFloat(b.split('_')[1])).forEach((viKey, index) => {
+      const viValue = viKey.split('_')[1];
+      newChartConfig[viKey] = {
+        label: `Eff @ ${viValue}V`,
+        color: lineColors[index % lineColors.length], // Cycle through colors
+      };
+    });
+
+    setChartData(transformedData);
+    setChartConfig(newChartConfig);
+    setIsBusy(false);
   };
 
   return (
@@ -383,7 +437,7 @@ export default function Home() {
           <Input 
             id="userTimeout" 
             type="number" 
-            placeholder="e.g., 2000 (default 1000)" 
+            placeholder="e.g., 1000 (default 1000)" 
             value={userTimeout} 
             onChange={(e) => setUserTimeout(e.target.value)} 
           />
@@ -396,7 +450,7 @@ export default function Home() {
           <div className="flex items-center space-x-4 mt-1">
             <Input
               id="procedure"
-              placeholder="e.g., SwVin(10,20,5), Pin(12), Pout(), SwPo(10,50,5)"
+              placeholder="e.g., SwPoVi(10,50,5,12,24,3), SwVin(...), Pin(...)"
               value={procedureText}
               onChange={(e) => setProcedureText(e.target.value)}
               className="flex-grow"
@@ -432,7 +486,7 @@ export default function Home() {
         </div>
 
         {commands.length > 0 && (
-          <div className="w-full mt-4">
+          <div className="w-full mt-4 h-[150px] overflow-y-auto"> 
             <Table>
               <TableCaption>List of commands in queue</TableCaption>
               <TableHeader>
@@ -449,19 +503,25 @@ export default function Home() {
                   <TableRow key={index}>
                     {Array.from({ length: 8 }).map((_, cellIndex) => (
                       <TableCell key={`cell-${index}-${cellIndex}`}>
-                        <Input type="text" value={commandResponses[index * 8 + cellIndex] || ''} readOnly className={cellIndex === 0 ? "w-[90px]" : "w-[75px]"} />
+                        <Input 
+                          type="text" 
+                          value={commandResponses[index * 8 + cellIndex] || ''} 
+                          readOnly 
+                          className={`h-8 text-xs ${cellIndex === 0 ? "w-[90px]" : "w-[75px]"}`} 
+                        />
                       </TableCell>
                     ))}
-                    <TableCell className="truncate" style={{ maxWidth: '120px' }}>{cmdInfo.text}</TableCell>
-                    <TableCell>{cmdInfo.targetPort}</TableCell>
+                    <TableCell className="truncate text-xs" style={{ maxWidth: '120px' }}>{cmdInfo.text}</TableCell>
+                    <TableCell className="text-xs">{cmdInfo.targetPort}</TableCell>
                     <TableCell>
                       <Button
                         variant="destructive"
                         size="sm"
                         onClick={() => handleRemoveCommand(index)}
                         disabled={isBusy || isPort1Busy || isPort2Busy}
+                        className="h-8 px-2 text-xs" 
                       >
-                        <Trash2 className="h-4 w-4 mr-1" /> Remove
+                        <Trash2 className="h-3 w-3 mr-1" /> Remove
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -475,39 +535,54 @@ export default function Home() {
           {isBusy ? 'Sending Commands...' : 'Send All Commands from Queue'}
         </Button>
 
-        {/* Chart Display Area */}
-        {effPoChartData.length > 0 && (
+        {/* Updated Chart Display Area */}
+        {chartData.length > 0 && Object.keys(chartConfig).length > 0 && (
           <Card className="w-full mt-4">
             <CardHeader>
               <CardTitle>Efficiency vs. Output Power</CardTitle>
-              <CardDescription>Eff = Vo / Vi, Po = Vo * Io</CardDescription>
+              <CardDescription>Efficiency curves at different input voltages</CardDescription>
             </CardHeader>
             <CardContent>
-              <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
-                <LineChart data={effPoChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+              <ChartContainer config={chartConfig} className="min-h-[300px] w-full"> 
+                <LineChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     dataKey="po" 
                     type="number" 
-                    name="Output Power (Po)"
-                    unit="W"
+                    label={{ value: "Output Power (Po) (W)", position: "insideBottom", offset: -5 }}
                     domain={['auto', 'auto']}
                     tickFormatter={(value) => value.toFixed(1)}
+                    allowDuplicatedCategory={false}
                   />
                   <YAxis 
-                    dataKey="eff" 
-                    name="Efficiency (Eff)"
-                    domain={[0, 'auto']} // Eff typically 0 to 1 or 1.x for >100%
+                    label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }}
+                    domain={[0, 'auto']} 
                     tickFormatter={(value) => value.toFixed(3)}
                   />
                   <ChartTooltip 
-                    content={<ChartTooltipContent hideLabel />} 
-                    formatter={(value, name, props) => [
-                      `${(value as number).toFixed(3)} (${name === 'eff' ? 'Eff' : 'Po'})`,
-                       name === 'eff' ? `Po: ${(props.payload?.po as number).toFixed(2)}W` : `Eff: ${(props.payload?.eff as number).toFixed(3)}`
-                    ]}
-                   />
-                  <Line type="monotone" dataKey="eff" stroke={chartConfig.eff.color} strokeWidth={2} dot={false} name="Efficiency"/>
+                    cursor={true} // Show cursor line
+                    content={<ChartTooltipContent 
+                      hideLabel // Hide the default Po label in tooltip
+                      labelFormatter={(value) => `Po: ${value.toFixed(2)} W`} // Format Po label
+                      formatter={(value, name) => [
+                         (value as number).toFixed(3),
+                         chartConfig[name]?.label || name // Get label from config
+                      ]}
+                    />} 
+                  />
+                  {/* Dynamically generate lines based on chartConfig */}
+                  {Object.keys(chartConfig).map((key) => (
+                    <Line 
+                      key={key} 
+                      type="monotone" 
+                      dataKey={key} 
+                      stroke={chartConfig[key]?.color} 
+                      strokeWidth={2} 
+                      dot={false} 
+                      name={chartConfig[key]?.label} // Use label from config for legend/tooltip
+                      connectNulls // Connect lines even if some Vi points are missing for a specific Po
+                    />
+                  ))}
                   <ChartLegend content={<ChartLegendContent />} />
                 </LineChart>
               </ChartContainer>
@@ -528,7 +603,14 @@ export default function Home() {
 
         <div>
           <Label htmlFor="response" className="block text-sm font-medium text-foreground">Response Log:</Label>
-          <Textarea id="response" placeholder="Response log will be displayed here" value={response} readOnly className="mt-1 h-60 resize-none" />
+          <Textarea 
+            ref={responseLogRef} 
+            id="response" 
+            placeholder="Response log will be displayed here" 
+            value={response ? response + '▋' : '▋'} 
+            readOnly 
+            className="mt-1 h-24 resize-none text-xs bg-black text-white font-mono" 
+          />
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@
 3.  `Pout(Is)`
 4.  `Pin(Vs)`
 5.  `SwPo(Ps1, Ps2, Nsw)`
+6.  `SwPoVi(Ps1, Ps2, Nsw, Vs1, Vs2, Nswv)`
 
 ---
 
@@ -145,12 +146,57 @@ Sweeps the output power (Po) and takes measurements. Calculates required output 
 
 ---
 
+### 6. `SwPoVi(Ps1, Ps2, Nsw, Vs1, Vs2, Nswv)`
+
+Sweeps output power (Po) across a range of input voltages (Vi). For each Vi step, it performs a full SwPo sweep.
+
+**Parameters:**
+*   `Ps1`: Starting output power (Watts) for the inner SwPo sweep.
+    *   If empty, defaults to 0W.
+    *   Must be a numeric value.
+*   `Ps2`: Ending output power (Watts) for the inner SwPo sweep.
+    *   If empty, defaults to `Nominal Power` from User Parameters.
+    *   Requires `Nominal Power` and `Vo (Nominal)` to be set, and `Vo (Nominal)` non-zero for default.
+    *   Must be a numeric value.
+*   `Nsw`: Number of sweep steps for the inner SwPo sweep.
+    *   If empty or less than 2, defaults to 2.
+    *   If greater than 20, capped at 20.
+    *   Must be an integer.
+*   `Vs1`: Starting input voltage (Volts) for the outer Vi sweep.
+    *   If empty, defaults to `Vi(min)` from User Parameters.
+    *   Must be a numeric value.
+*   `Vs2`: Ending input voltage (Volts) for the outer Vi sweep.
+    *   If empty, defaults to `Vi(max)` from User Parameters.
+    *   Must be a numeric value.
+*   `Nswv`: Number of sweep steps for the outer Vi sweep.
+    *   If empty or less than 2, defaults to 2.
+    *   If greater than 20, capped at 20.
+    *   Must be an integer.
+
+**Pre-calculation (for each Vi step):**
+*   `Is1 = Ps1 / Vo (Nominal)`
+*   `Is2 = Ps2 / Vo (Nominal)`
+    *   Requires `Vo (Nominal)` from User Parameters to be set and not zero.
+
+**Command Sequence Generated (for each step `Vx` from `Vs1` to `Vs2` in `Nswv` steps):**
+1.  `VOLT Vx` (Target: COM3) - Sets the current input voltage for the outer loop.
+2.  **Then, for each step `Ix` from `Is1` to `Is2` in `Nsw` steps (inner SwPo loop):**
+    a.  `CURR Ix` (Target: COM6) - Sets the output current.
+    b.  `MEAS:VOLT?` (Target: COM3) - Measures Vi.
+    c.  `MEAS:VOLT?` (Target: COM6) - Measures Vo.
+    d.  `MEAS:CURR?` (Target: COM3, Meta: `calculatesPi: true`) - Measures Ii. Pi is displayed.
+    e.  `MEAS:CURR?` (Target: COM6, Meta: `calculatesPo: true, calculatesEff: true`) - Measures Io. Po and Eff are displayed.
+
+**Example:** `SwPoVi(10, 50, 5, 12, 24, 3)` - For Vi=12V, Vi=18V, and Vi=24V, it will sweep Po from 10W to 50W in 5 steps at each voltage.
+
+---
+
 ### General Command Input (Legacy - Now Handled as Error for Procedure Input)
 
 Previously, text entered into the "Enter Procedure" field that did not match a specific procedure format was treated as a single command, using a radio button for port selection. 
 
 **Current Behavior:**
-The "Enter Procedure" input is now **strictly for defined procedures**. If the entered text does not match `SwVin(...)`, `SwIo(...)`, `Pout(...)`, `Pin(...)`, or `SwPo(...)`, an error message will be displayed in the Response Log. 
+The "Enter Procedure" input is now **strictly for defined procedures**. If the entered text does not match `SwVin(...)`, `SwIo(...)`, `Pout(...)`, `Pin(...)`, `SwPo(...)`, or `SwPoVi(...)`, an error message will be displayed in the Response Log. 
 
 For sending individual, non-procedure commands, please use the separate "Enter Command" input section, which retains its radio button for port selection.
 
