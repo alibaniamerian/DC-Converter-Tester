@@ -10,19 +10,38 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useComPort } from '../hooks/useComPort';
-import { useProcedure } from '../hooks/useProcedure'; 
+import { useProcedure } from '../hooks/useProcedure';
+import {
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from 'recharts'; // Added recharts imports
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle
+} from "@/components/ui/card"; // Added Card imports for styling
+import {
+  ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent
+} from "@/components/ui/chart"; // Added Chart components
 
 interface QueuedCommand {
   text: string;
   targetPort: 'COM3' | 'COM6';
-  meta?: { calculatesPo?: boolean; calculatesPi?: boolean };
+  meta?: { calculatesPo?: boolean; calculatesPi?: boolean; calculatesEff?: boolean };
+}
+
+interface EffPoDataPoint {
+  po: number;
+  eff: number;
 }
 
 async function sendAndRead(
   port: SerialPort | null,
   commandToSend: string,
   responseUpdater: React.Dispatch<React.SetStateAction<string>>,
-  timeoutMs: number, // Default removed, will be passed explicitly
+  timeoutMs: number, 
   lineEnding: string = String.fromCharCode(10),
   responseDelimiter: string = String.fromCharCode(10)
 ): Promise<string> {
@@ -75,7 +94,6 @@ async function sendAndRead(
         }
       } catch (error) {
         if (error instanceof Error && error.message.startsWith('Timeout: No data received')) throw error;
-        // Handle other errors or cases where incomingData might be useful
         if (incomingData.length > 0 && !(error instanceof Error && error.message.includes('timed out after'))) {
             readerDone = true; break;
         } else {
@@ -104,19 +122,20 @@ export default function Home() {
   const [isPort1Busy, setIsPort1Busy] = useState(false);
   const [isPort2Busy, setIsPort2Busy] = useState(false);
   const [commandResponses, setCommandResponses] = useState<string[]>([]);
+  const [effPoChartData, setEffPoChartData] = useState<EffPoDataPoint[]>([]); // State for chart data
 
   // User Parameters State
   const [nominalPower, setNominalPower] = useState('');
   const [viMin, setViMin] = useState('');
   const [viMax, setViMax] = useState('');
   const [voNominal, setVoNominal] = useState('');
-  const [userTimeout, setUserTimeout] = useState<string>(''); // State for user-defined timeout
+  const [userTimeout, setUserTimeout] = useState<string>('');
 
   const { port1, isConnected1, activatePort1, port2, isConnected2, activatePort2 } = useComPort({
     setIsBusy: setIsBusy,
     setResponse,
     setCommandResponses,
-    sendAndRead, // sendAndRead will now get timeout from Home component
+    sendAndRead,
   });
 
   const {
@@ -149,7 +168,7 @@ export default function Home() {
       return;
     }
     if (procedureCommands.length === 0 && procedureText.trim()) {
-        setResponse(prev => prev + `${String.fromCharCode(10)}Procedure not recognized or generated no commands. Supported: SwVin, SwIo, Pout(Is), Pin(Vs).`);
+        setResponse(prev => prev + `${String.fromCharCode(10)}Procedure not recognized or generated no commands. Supported: SwVin, SwIo, Pout(Is), Pin(Vs), SwPo.`);
         return;
     }
     if (procedureCommands.length > 0) {
@@ -191,11 +210,12 @@ export default function Home() {
 
     let parsedTimeout = parseInt(userTimeout, 10);
     if (userTimeout.trim() === '' || isNaN(parsedTimeout) || parsedTimeout <= 0) {
-      parsedTimeout = 1000; // Default to 1000ms if empty, not a number, or non-positive
+      parsedTimeout = 1000;
     }
 
     setIsBusy(true);
     let tempUpdatedResponses = [...commandResponses];
+    const newChartData: EffPoDataPoint[] = []; // Initialize chart data collector
 
     for (let i = 0; i < commands.length; i++) {
       const cmdInfo = commands[i];
@@ -222,9 +242,8 @@ export default function Home() {
       
       setResponse(prev => prev + `${String.fromCharCode(10)}Sending to ${targetPortName}: "${cmdInfo.text}"`);
       try {
-        // Pass the parsedTimeout to sendAndRead
         const cmdResponse = await sendAndRead(targetPortSerial, cmdInfo.text, setResponse, parsedTimeout);
-        tempUpdatedResponses[i * 8] = cmdResponse; // Main response
+        tempUpdatedResponses[i * 8] = cmdResponse;
 
         if (cmdInfo.text.endsWith('?')) {
           const parts = cmdResponse.split(',').map(p => p.trim());
@@ -236,12 +255,17 @@ export default function Home() {
               case 'MEAS:CURR?':
                 if (parts.length > 0) tempUpdatedResponses[i * 8 + 2] = parts[0]; // Ii
                 if (cmdInfo.meta?.calculatesPi) {
-                  if (i > 0 && commands[i-1].text === 'MEAS:VOLT?' && commands[i-1].targetPort === 'COM3') {
-                     const prevVi = parseFloat(tempUpdatedResponses[(i-1) * 8 + 1]); 
-                     const currentIi = parseFloat(parts[0]); 
-                     if (!isNaN(prevVi) && !isNaN(currentIi)) {
-                       tempUpdatedResponses[i * 8 + 3] = (prevVi * currentIi).toFixed(2); // Pi
-                     }
+                  let prevViStr = '';
+                  for (let k = i - 1; k >= 0; k--) {
+                    if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM3') {
+                      prevViStr = tempUpdatedResponses[k * 8 + 1];
+                      break;
+                    }
+                  }
+                  const prevVi = parseFloat(prevViStr);
+                  const currentIi = parseFloat(parts[0]); 
+                  if (!isNaN(prevVi) && !isNaN(currentIi)) {
+                    tempUpdatedResponses[i * 8 + 3] = (prevVi * currentIi).toFixed(2); // Pi
                   }
                 }
                 break;
@@ -261,13 +285,44 @@ export default function Home() {
                 break;
               case 'MEAS:CURR?':
                 if (parts.length > 0) tempUpdatedResponses[i * 8 + 5] = parts[0]; // Io
+                let poVal: number | undefined = undefined;
                 if (cmdInfo.meta?.calculatesPo) {
-                  if (i > 0 && commands[i-1].text === 'MEAS:VOLT?' && commands[i-1].targetPort === 'COM6') {
-                     const prevVo = parseFloat(tempUpdatedResponses[(i-1) * 8 + 4]); 
-                     const currentIo = parseFloat(parts[0]); 
-                     if (!isNaN(prevVo) && !isNaN(currentIo)) {
-                       tempUpdatedResponses[i * 8 + 6] = (prevVo * currentIo).toFixed(2); // Po
-                     }
+                  let prevVoStr = '';
+                  for (let k = i - 1; k >= 0; k--) {
+                    if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM6') {
+                      prevVoStr = tempUpdatedResponses[k * 8 + 4];
+                      break;
+                    }
+                  }
+                  const prevVo = parseFloat(prevVoStr); 
+                  const currentIo = parseFloat(parts[0]); 
+                  if (!isNaN(prevVo) && !isNaN(currentIo)) {
+                    poVal = parseFloat((prevVo * currentIo).toFixed(2));
+                    tempUpdatedResponses[i * 8 + 6] = poVal.toString(); // Po
+                  }
+                }
+                if (cmdInfo.meta?.calculatesEff) {
+                  let prevViStr = '';
+                  let prevVoStrPo = ''; 
+                  for (let k = i - 1; k >= 0; k--) {
+                    if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM3') {
+                      prevViStr = tempUpdatedResponses[k * 8 + 1]; 
+                    }
+                    if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM6') {
+                      prevVoStrPo = tempUpdatedResponses[k * 8 + 4];
+                    }
+                    if (prevViStr && prevVoStrPo) break; 
+                  }
+                  const prevVi = parseFloat(prevViStr);
+                  const prevVo = parseFloat(prevVoStrPo);
+                  let effVal: number | undefined = undefined;
+                  if (!isNaN(prevVi) && !isNaN(prevVo) && prevVi !== 0) {
+                    effVal = parseFloat((prevVo / prevVi).toFixed(3));
+                    tempUpdatedResponses[i * 8 + 7] = effVal.toString(); // Eff
+                  }
+                  // Collect data for chart
+                  if (poVal !== undefined && effVal !== undefined) {
+                    newChartData.push({ po: poVal, eff: effVal });
                   }
                 }
                 break;
@@ -287,16 +342,25 @@ export default function Home() {
         for (let k = 1; k < 8; k++) tempUpdatedResponses[i * 8 + k] = ''; 
       }
       setCommandResponses([...tempUpdatedResponses]); 
-      await new Promise(resolve => setTimeout(resolve, 2000)); // This is the delay BETWEEN commands
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
+    // Sort data by Po for correct line chart rendering
+    newChartData.sort((a, b) => a.po - b.po);
+    setEffPoChartData(newChartData);
     setIsBusy(false);
+  };
+
+  const chartConfig = {
+    eff: {
+      label: "Efficiency",
+      color: "hsl(var(--chart-1))",
+    },
   };
 
   return (
     <div className="flex flex-col items-center justify-start min-h-screen p-8">
       <h1 className="text-2xl font-bold mb-4">DC Converter Tester V0</h1>
       
-      {/* User Parameters Section - Added Command Timeout input */}
       <div className="w-full grid grid-cols-2 md:grid-cols-5 gap-4 mb-6 p-4 border rounded-md">
         <div>
           <Label htmlFor="nominalPower" className="block text-sm font-medium text-foreground mb-1">Nominal Power (W)</Label>
@@ -332,7 +396,7 @@ export default function Home() {
           <div className="flex items-center space-x-4 mt-1">
             <Input
               id="procedure"
-              placeholder="e.g., SwVin(10,20,5), Pin(12), Pout()"
+              placeholder="e.g., SwVin(10,20,5), Pin(12), Pout(), SwPo(10,50,5)"
               value={procedureText}
               onChange={(e) => setProcedureText(e.target.value)}
               className="flex-grow"
@@ -411,12 +475,52 @@ export default function Home() {
           {isBusy ? 'Sending Commands...' : 'Send All Commands from Queue'}
         </Button>
 
+        {/* Chart Display Area */}
+        {effPoChartData.length > 0 && (
+          <Card className="w-full mt-4">
+            <CardHeader>
+              <CardTitle>Efficiency vs. Output Power</CardTitle>
+              <CardDescription>Eff = Vo / Vi, Po = Vo * Io</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={chartConfig} className="min-h-[200px] w-full">
+                <LineChart data={effPoChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="po" 
+                    type="number" 
+                    name="Output Power (Po)"
+                    unit="W"
+                    domain={['auto', 'auto']}
+                    tickFormatter={(value) => value.toFixed(1)}
+                  />
+                  <YAxis 
+                    dataKey="eff" 
+                    name="Efficiency (Eff)"
+                    domain={[0, 'auto']} // Eff typically 0 to 1 or 1.x for >100%
+                    tickFormatter={(value) => value.toFixed(3)}
+                  />
+                  <ChartTooltip 
+                    content={<ChartTooltipContent hideLabel />} 
+                    formatter={(value, name, props) => [
+                      `${(value as number).toFixed(3)} (${name === 'eff' ? 'Eff' : 'Po'})`,
+                       name === 'eff' ? `Po: ${(props.payload?.po as number).toFixed(2)}W` : `Eff: ${(props.payload?.eff as number).toFixed(3)}`
+                    ]}
+                   />
+                  <Line type="monotone" dataKey="eff" stroke={chartConfig.eff.color} strokeWidth={2} dot={false} name="Efficiency"/>
+                  <ChartLegend content={<ChartLegendContent />} />
+                </LineChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
-          <Button onClick={handleActivatePort1} variant="outline" className="w-full" disabled={isPort1Busy || isPort2Busy || (isConnected2 && !isConnected1) || isBusy}>
+          <Button onClick={handleActivatePort1} variant="outline" className="w-full" disabled={isPort1Busy || isBusy}>
             {isPort1Busy ? (isConnected1 ? 'Disconnecting COM3...' : 'Connecting COM3...') : (isConnected1 ? 'Deactivate COM3 Port' : 'Activate COM3 Port')}
             <Plug className="ml-2 h-4 w-4" />
           </Button>
-          <Button onClick={handleActivatePort2} variant="outline" className="w-full" disabled={isPort2Busy || isPort1Busy || (isConnected1 && !isConnected2) || isBusy}>
+          <Button onClick={handleActivatePort2} variant="outline" className="w-full" disabled={isPort2Busy || isBusy}>
             {isPort2Busy ? (isConnected2 ? 'Disconnecting COM6...' : 'Connecting COM6...') : (isConnected2 ? 'Deactivate COM6 Port' : 'Activate COM6 Port')}
             <Plug className="ml-2 h-4 w-4" />
           </Button>

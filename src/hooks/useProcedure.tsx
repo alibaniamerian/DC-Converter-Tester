@@ -5,7 +5,7 @@ import { useState } from 'react';
 interface QueuedCommand {
   text: string;
   targetPort: 'COM3' | 'COM6';
-  meta?: { calculatesPo?: boolean; calculatesPi?: boolean };
+  meta?: { calculatesPo?: boolean; calculatesPi?: boolean; calculatesEff?: boolean };
 }
 
 interface ProcedureGenerationResult {
@@ -20,7 +20,6 @@ export function useProcedure(
   voNominalDefault?: string
 ) {
   const [procedureText, setProcedureText] = useState('');
-  // selectedProcedurePort and setSelectedProcedurePort are removed
 
   const generateCommandsFromProcedure = (): ProcedureGenerationResult => {
     const procText = procedureText.trim();
@@ -28,6 +27,7 @@ export function useProcedure(
     const swIoMatch = procText.match(/^SwIo\(([^,]*),([^,]*),([^)]*)\)$/i);
     const poutMatch = procText.match(/^Pout\(([^)]*)\)$/i);
     const pinMatch = procText.match(/^Pin\(([^)]*)\)$/i);
+    const swPoMatch = procText.match(/^SwPo\(([^,]*),([^,]*),([^)]*)\)$/i); // Added SwPo regex
 
     if (swVinMatch) {
       const vs1Str = swVinMatch[1].trim();
@@ -47,8 +47,8 @@ export function useProcedure(
         generatedCommands.push({ text: `VOLT ${vx.toFixed(2)}`, targetPort: 'COM3' });
         generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM3' });
         generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM6' });
-        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3' });
-        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM6' });
+        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3', meta: { calculatesPi: true } });
+        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM6', meta: { calculatesPo: true, calculatesEff: true } });
       }
       return { commands: generatedCommands };
     } else if (swIoMatch) {
@@ -74,8 +74,44 @@ export function useProcedure(
         generatedCommands.push({ text: `CURR ${ix.toFixed(2)}`, targetPort: 'COM6' });
         generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM3' });
         generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM6' });
-        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3' });
-        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM6' });
+        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3', meta: { calculatesPi: true } });
+        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM6', meta: { calculatesPo: true, calculatesEff: true } });
+      }
+      return { commands: generatedCommands };
+    } else if (swPoMatch) { // Added SwPo logic
+      const ps1Str = swPoMatch[1].trim();
+      const ps2Str = swPoMatch[2].trim();
+      const nswStr = swPoMatch[3].trim();
+      let ps1: number, ps2: number;
+
+      if (ps1Str === '') ps1 = 0; else ps1 = parseFloat(ps1Str);
+      if (ps2Str === '') {
+        const nomP = parseFloat(nominalPowerDefault || '');
+        if (isNaN(nomP)) return { commands: [], error: 'SwPo Error: Cannot calc default Ps2. Nominal Power invalid or not set.' };
+        ps2 = nomP;
+      } else ps2 = parseFloat(ps2Str);
+
+      const voN = parseFloat(voNominalDefault || '');
+      if (isNaN(voN) || voN === 0) return { commands: [], error: 'SwPo Error: Vo (Nominal) is invalid, zero, or not set. Required for Is calculation.' };
+
+      if (isNaN(ps1) || isNaN(ps2)) return { commands: [], error: 'SwPo Error: Ps1 or Ps2 invalid.' };
+      
+      const is1 = ps1 / voN;
+      const is2 = ps2 / voN;
+
+      let nsw = nswStr === '' ? 2 : parseInt(nswStr, 10);
+      if (isNaN(nsw) || nsw < 2) nsw = 2;
+      if (nsw > 20) nsw = 20;
+
+      const generatedCommands: QueuedCommand[] = [];
+      for (let i = 0; i < nsw; i++) {
+        const t = (nsw === 1) ? 0 : i / (nsw - 1);
+        const ix = is1 + t * (is2 - is1); // Current sweep based on calculated Is1 and Is2
+        generatedCommands.push({ text: `CURR ${ix.toFixed(2)}`, targetPort: 'COM6' });
+        generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM3' });
+        generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM6' });
+        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3', meta: { calculatesPi: true } });
+        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM6', meta: { calculatesPo: true, calculatesEff: true } });
       }
       return { commands: generatedCommands };
     } else if (poutMatch) {
@@ -109,20 +145,17 @@ export function useProcedure(
       generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3', meta: { calculatesPi: true } });
       return { commands: generatedCommands };
     } else if (procText) {
-      // If procText is not empty but doesn't match any known procedure, return an error.
       return { 
         commands: [], 
-        error: `Unrecognized procedure: "${procText}". Please use a defined procedure (e.g., SwVin, Pin) or the 'Enter Command' section for individual commands.` 
+        error: `Unrecognized procedure: "${procText}". Please use a defined procedure (e.g., SwVin, Pin, SwPo) or the 'Enter Command' section for individual commands.` 
       };
     }
-    // No text, no commands, no error
     return { commands: [] };
   };
 
   return {
     procedureText,
     setProcedureText,
-    // selectedProcedurePort and setSelectedProcedurePort are removed from return
     generateCommandsFromProcedure,
   };
 }

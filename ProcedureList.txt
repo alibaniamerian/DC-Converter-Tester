@@ -1,3 +1,13 @@
+## Available Procedures
+
+1.  `SwVin(Vs1, Vs2, Nsw)`
+2.  `SwIo(Is1, Is2, Nsw)`
+3.  `Pout(Is)`
+4.  `Pin(Vs)`
+5.  `SwPo(Ps1, Ps2, Nsw)`
+
+---
+
 ## DC Converter Tester Procedures List
 
 This document outlines the available procedures for the DC Converter Tester application.
@@ -24,8 +34,8 @@ Sweeps the input voltage (Vin) and takes measurements.
 1.  `VOLT Vx` (Target: COM3) - Sets the input voltage.
 2.  `MEAS:VOLT?` (Target: COM3) - Measures Vi.
 3.  `MEAS:VOLT?` (Target: COM6) - Measures Vo.
-4.  `MEAS:CURR?` (Target: COM3) - Measures Ii.
-5.  `MEAS:CURR?` (Target: COM6) - Measures Io.
+4.  `MEAS:CURR?` (Target: COM3, Meta: `calculatesPi: true`) - Measures Ii. Pi is displayed in the 'Pi' column.
+5.  `MEAS:CURR?` (Target: COM6, Meta: `calculatesPo: true, calculatesEff: true`) - Measures Io. Po is displayed in the 'Po' column. Eff is displayed in the 'Eff' column.
 
 **Example:** `SwVin(10, 20, 5)` - Sweeps Vin from 10V to 20V in 5 steps.
 
@@ -52,8 +62,8 @@ Sweeps the output current (Io) and takes measurements.
 1.  `CURR Ix` (Target: COM6) - Sets the output current.
 2.  `MEAS:VOLT?` (Target: COM3) - Measures Vi.
 3.  `MEAS:VOLT?` (Target: COM6) - Measures Vo.
-4.  `MEAS:CURR?` (Target: COM3) - Measures Ii.
-5.  `MEAS:CURR?` (Target: COM6) - Measures Io.
+4.  `MEAS:CURR?` (Target: COM3, Meta: `calculatesPi: true`) - Measures Ii. Pi is displayed in the 'Pi' column.
+5.  `MEAS:CURR?` (Target: COM6, Meta: `calculatesPo: true, calculatesEff: true`) - Measures Io. Po is displayed in the 'Po' column. Eff is displayed in the 'Eff' column.
 
 **Example:** `SwIo(0.5, 2.5, 10)` - Sweeps Io from 0.5A to 2.5A in 10 steps.
 
@@ -102,12 +112,45 @@ Sets an optional input voltage `Vs`, measures input voltage and current, then ca
 
 ---
 
+### 5. `SwPo(Ps1, Ps2, Nsw)`
+
+Sweeps the output power (Po) and takes measurements. Calculates required output currents (Is1, Is2) based on `Vo (Nominal)`.
+
+**Parameters:**
+*   `Ps1`: Starting output power (Watts).
+    *   If empty, defaults to 0W.
+    *   Must be a numeric value.
+*   `Ps2`: Ending output power (Watts).
+    *   If empty, defaults to `Nominal Power` from User Parameters.
+    *   Requires `Nominal Power` and `Vo (Nominal)` to be set and valid, and `Vo (Nominal)` must not be zero for default calculation.
+    *   Must be a numeric value.
+*   `Nsw`: Number of sweep steps.
+    *   If empty or less than 2, defaults to 2.
+    *   If greater than 20, capped at 20.
+    *   Must be an integer.
+
+**Pre-calculation:**
+*   `Is1 = Ps1 / Vo (Nominal)`
+*   `Is2 = Ps2 / Vo (Nominal)`
+    *   Requires `Vo (Nominal)` from User Parameters to be set and not zero.
+
+**Command Sequence Generated (for each step `Ix` from `Is1` to `Is2`):**
+1.  `CURR Ix` (Target: COM6) - Sets the output current.
+2.  `MEAS:VOLT?` (Target: COM3) - Measures Vi.
+3.  `MEAS:VOLT?` (Target: COM6) - Measures Vo.
+4.  `MEAS:CURR?` (Target: COM3, Meta: `calculatesPi: true`) - Measures Ii. Pi is displayed in the 'Pi' column.
+5.  `MEAS:CURR?` (Target: COM6, Meta: `calculatesPo: true, calculatesEff: true`) - Measures Io. Po is displayed in the 'Po' column. Eff is displayed in the 'Eff' column.
+
+**Example:** `SwPo(10, 50, 5)` - Sweeps Po from 10W to 50W in 5 steps, assuming `Vo (Nominal)` is set in User Parameters.
+
+---
+
 ### General Command Input (Legacy - Now Handled as Error for Procedure Input)
 
 Previously, text entered into the "Enter Procedure" field that did not match a specific procedure format was treated as a single command, using a radio button for port selection. 
 
 **Current Behavior:**
-The "Enter Procedure" input is now **strictly for defined procedures**. If the entered text does not match `SwVin(...)`, `SwIo(...)`, `Pout(...)`, or `Pin(...)`, an error message will be displayed in the Response Log. 
+The "Enter Procedure" input is now **strictly for defined procedures**. If the entered text does not match `SwVin(...)`, `SwIo(...)`, `Pout(...)`, `Pin(...)`, or `SwPo(...)`, an error message will be displayed in the Response Log. 
 
 For sending individual, non-procedure commands, please use the separate "Enter Command" input section, which retains its radio button for port selection.
 
