@@ -6,16 +6,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Plug, Trash2 } from 'lucide-react'; // Removed Check, ChevronsUpDown
+import { Plug, Trash2 } from 'lucide-react';
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useComPort } from '../hooks/useComPort';
 import { useProcedure } from '../hooks/useProcedure';
 import { useConverterModel, type ConverterParams } from '../hooks/useConverterModel';
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"; // Kept for potential future use, but Command parts removed
-// import { Command, CommandInput, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command"; // Commented out
-import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 
 import {
   LineChart,
@@ -160,7 +159,6 @@ export default function Home() {
   const [chartData, setChartData] = useState<MultiLineChartDataPoint[]>([]);
   const [chartConfig, setChartConfig] = useState<ChartConfig>({});
   const responseLogRef = useRef<HTMLTextAreaElement>(null);
-  // const [openCombobox, setOpenCombobox] = React.useState(false); // Removed state for combobox
 
 
   const [nominalPower, setNominalPower] = useState('');
@@ -448,25 +446,27 @@ export default function Home() {
     setIsBusy(false);
   };
 
-  const handleLoadParams = async () => {
-    if (!converterModel.trim()) {
-      setResponse(prev => prev + `${String.fromCharCode(10)}Please enter a Converter Model to load parameters.`);
-      return;
-    }
+  const handleModelSelectAndLoad = async (selectedValue: string) => {
+    if (!selectedValue) return;
+    setConverterModel(selectedValue); // Update the Input field and central state
+    
     setIsBusy(true);
-    setResponse(prev => prev + `${String.fromCharCode(10)}Loading parameters for model: ${converterModel}...`);
-    const params = await loadConverterParams(converterModel);
+    setResponse(prev => prev + `${String.fromCharCode(10)}Loading parameters for model: ${selectedValue}...`);
+    const params = await loadConverterParams(selectedValue);
     if (params) {
       setNominalPower(params.nominalPower);
       setViMin(params.viMin);
       setViMax(params.viMax);
       setVoNominal(params.voNominal);
-      setResponse(prev => prev + `${String.fromCharCode(10)}Parameters loaded for ${converterModel}.`);
+      setResponse(prev => prev + `${String.fromCharCode(10)}Parameters loaded for ${selectedValue}.`);
     } else {
-      setResponse(prev => prev + `${String.fromCharCode(10)}Failed to load parameters for ${converterModel}. Model not found or error occurred.`);
+      setResponse(prev => prev + `${String.fromCharCode(10)}Failed to load parameters for ${selectedValue}. Model not found or error occurred.`);
+      // Optionally clear parameter fields if model not found or has no params
+      // setNominalPower(''); setViMin(''); setViMax(''); setVoNominal('');
     }
     setIsBusy(false);
   };
+
 
   const handleSaveParams = async () => {
     if (!converterModel.trim()) {
@@ -508,9 +508,18 @@ export default function Home() {
                 disabled={isBusy}
                 className="w-full"
               />
-            <Button onClick={handleLoadParams} disabled={isBusy || !converterModel.trim()} className="h-10">
-              Load Params
-            </Button>
+            <Select value={converterModel} onValueChange={handleModelSelectAndLoad} disabled={isBusy}>
+              <SelectTrigger className="w-[280px] h-10">
+                <SelectValue placeholder="Load existing model..." />
+              </SelectTrigger>
+              <SelectContent>
+                {availableModels.map((model) => (
+                  <SelectItem key={model} value={model}>
+                    {model}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button onClick={handleSaveParams} disabled={isBusy || !converterModel.trim()} className="h-10">
               Save Params
             </Button>
