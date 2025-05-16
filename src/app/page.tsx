@@ -177,7 +177,7 @@ export default function Home() {
   const [userTimeout, setUserTimeout] = useState<string>('');
 
   // Use the new hook for converter model
-  const { converterModel, setConverterModel, loadConverterParams } = useConverterModel();
+  const { converterModel, setConverterModel, loadConverterParams, saveConverterParams } = useConverterModel();
 
 
   const { port1, isConnected1, activatePort1, port2, isConnected2, activatePort2 } = useComPort({
@@ -542,6 +542,28 @@ export default function Home() {
     setIsBusy(false);
   };
 
+  const handleSaveParams = async () => {
+    if (!converterModel.trim()) {
+      setResponse(prev => prev + `${String.fromCharCode(10)}Please enter a Converter Model name to save parameters.`);
+      return;
+    }
+    setIsBusy(true);
+    const currentParams: ConverterParams = {
+      nominalPower,
+      viMin,
+      viMax,
+      voNominal,
+    };
+    setResponse(prev => prev + `${String.fromCharCode(10)}Saving parameters for model: ${converterModel}...`);
+    const success = await saveConverterParams(converterModel, currentParams);
+    if (success) {
+      setResponse(prev => prev + `${String.fromCharCode(10)}Parameters saved for ${converterModel}.`);
+    } else {
+      setResponse(prev => prev + `${String.fromCharCode(10)}Failed to save parameters for ${converterModel}.`);
+    }
+    setIsBusy(false);
+  };
+
 
   return (
     <div className="flex flex-col items-center justify-start min-h-screen p-8 w-full">
@@ -556,7 +578,7 @@ export default function Home() {
             <Input 
               id="converterModel" 
               type="text" 
-              placeholder="e.g., XYZ-123 (type and click Load)" 
+              placeholder="e.g., XYZ-123" 
               value={converterModel} 
               onChange={(e) => setConverterModel(e.target.value)}
               className="flex-grow"
@@ -564,6 +586,9 @@ export default function Home() {
             />
             <Button onClick={handleLoadParams} disabled={isBusy || !converterModel.trim()} className="h-10">
               Load Params
+            </Button>
+            <Button onClick={handleSaveParams} disabled={isBusy || !converterModel.trim()} className="h-10">
+              Save Params
             </Button>
           </div>
         </div>
