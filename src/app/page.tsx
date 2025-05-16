@@ -1,3 +1,4 @@
+
 "use client";
 /// <reference lib="dom" />
 
@@ -11,6 +12,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useComPort } from '../hooks/useComPort';
 import { useProcedure } from '../hooks/useProcedure';
+import { useConverterModel, type ConverterParams } from '../hooks/useConverterModel'; // Added import
 import {
   LineChart,
   Line,
@@ -54,8 +56,8 @@ async function sendAndRead(
   commandToSend: string,
   responseUpdater: React.Dispatch<React.SetStateAction<string>>,
   timeoutMs: number,
-  lineEnding: string = String.fromCharCode(10),
-  responseDelimiter: string = String.fromCharCode(10)
+  lineEnding: string = String.fromCharCode(10), // LF for sending
+  responseDelimiter: string = String.fromCharCode(10) // Expect LF in response for splitting
 ): Promise<string> {
   if (!port) {
     throw new Error('Serial port is not connected.');
@@ -65,24 +67,31 @@ async function sendAndRead(
   if (!writer || !reader) {
     throw new Error('Failed to acquire port writer or reader.');
   }
+
   const expectResponse = commandToSend.endsWith('?');
   let responseData = '';
+
   try {
-    responseUpdater(prev => prev + `Sending: "${commandToSend}"${expectResponse ? '...' : ' (No Response Expected)'}`);
+    responseUpdater(prev => prev + `Sending: "${commandToSend}"${lineEnding === String.fromCharCode(10) ? ' (LF)' : ''}${expectResponse ? '...' : ' (No Response Expected)'}`);
     const dataToSend = new TextEncoder().encode(commandToSend + lineEnding);
     await writer.write(dataToSend);
-    if (!expectResponse) return "";
+
+    if (!expectResponse) return ""; // No response expected, return early
+
+    // Read response
     let incomingData = '';
     let readerDone = false;
     const startTime = Date.now();
+
     while (!readerDone) {
       const timeoutPromise = new Promise<never>((_, reject) => {
         const timeLeft = timeoutMs - (Date.now() - startTime);
         if (timeLeft <= 0) {
+          // If some data was received, resolve with it. Otherwise, reject with timeout.
           if (incomingData.length > 0) {
-            readerDone = true;
-            // @ts-ignore
-            resolve();
+            readerDone = true; // To break the loop
+            // @ts-ignore TypeScript doesn't like this resolve in a Promise<never>
+            resolve(); // This won't actually be called due to readerDone, but satisfies structure
           } else {
             reject(new Error(`Timeout: No data received for "${commandToSend}" within ${timeoutMs}ms`));
           }
@@ -90,40 +99,61 @@ async function sendAndRead(
           setTimeout(() => reject(new Error(`Read operation timed out for "${commandToSend}" after ${timeLeft}ms delay`)), timeLeft);
         }
       });
+
       const readChunkPromise = reader.read();
+
       try {
         // @ts-ignore
         const { value, done } = await Promise.race([readChunkPromise, timeoutPromise]);
         if (done) {
-          readerDone = true; break;
+          readerDone = true; // Port closed or stream ended
+          break;
         }
         if (value) {
           const decodedChunk = new TextDecoder().decode(value);
           incomingData += decodedChunk;
+          // Check if the delimiter is present (e.g., line feed)
+          // This logic might need adjustment based on how device sends multi-part responses
           if (incomingData.includes(responseDelimiter)) {
-            readerDone = true; break;
+             readerDone = true; // Assuming one line feed terminates the expected response part
+             break;
           }
         }
       } catch (error) {
-        if (error instanceof Error && error.message.startsWith('Timeout: No data received')) throw error;
+        // Handle timeout or other read errors
+        if (error instanceof Error && error.message.startsWith('Timeout: No data received')) {
+          throw error; // Rethrow specific timeout error
+        }
+        // If some data was received before timeout/error, consider it a partial response
         if (incomingData.length > 0 && !(error instanceof Error && error.message.includes('timed out after'))) {
-          readerDone = true; break;
+          readerDone = true; // Treat as complete if error wasn't a read timeout on an empty buffer
+          break;
         } else {
+          // For other errors or timeout without any data, rethrow
           throw error;
         }
       }
     }
-    responseData = incomingData.trim();
+    
+    responseData = incomingData.split(responseDelimiter)[0].trim(); // Take first line or complete data if no delimiter
     responseUpdater(prev => prev + `${String.fromCharCode(10)}Response: ${responseData}`);
     return responseData;
+
   } catch (error: any) {
     responseUpdater(prev => prev + `${String.fromCharCode(10)}Error during send/read for "${commandToSend}": ${error.message}`);
-    throw error;
+    throw error; // Re-throw to be caught by calling function
   } finally {
-    if (reader?.releaseLock) { try { await reader.cancel(); } catch (_) { } reader.releaseLock(); }
-    if (writer?.releaseLock) { writer.releaseLock(); }
+    // Release locks
+    if (reader?.releaseLock) {
+      try { await reader.cancel(); } catch (_) { /* Ignore reader cancellation error */ }
+      reader.releaseLock();
+    }
+    if (writer?.releaseLock) {
+      writer.releaseLock();
+    }
   }
 }
+
 
 export default function Home() {
   const [command, setCommand] = useState('');
@@ -146,11 +176,15 @@ export default function Home() {
   const [voNominal, setVoNominal] = useState('');
   const [userTimeout, setUserTimeout] = useState<string>('');
 
+  // Use the new hook for converter model
+  const { converterModel, setConverterModel, loadConverterParams } = useConverterModel();
+
+
   const { port1, isConnected1, activatePort1, port2, isConnected2, activatePort2 } = useComPort({
-    setIsBusy: setIsBusy,
+    setIsBusy: setIsBusy, // This setIsBusy is for the global busy state
     setResponse,
-    setCommandResponses,
-    sendAndRead,
+    setCommandResponses, // Pass this down if useComPort needs to modify it directly
+    sendAndRead, // Pass sendAndRead function
   });
 
   const {
@@ -171,39 +205,48 @@ export default function Home() {
       return;
     }
     setCommands(prevCommands => [...prevCommands, { text: command, targetPort: selectedCommandPort }]);
+    // Initialize 8 empty strings for the new command's response cells
     setCommandResponses(prevResponses => [
       ...prevResponses,
-      ...Array(8).fill('')
+      ...Array(8).fill('') // Resp, Vi, Ii, Pi, Vo, Io, Po, Eff
     ]);
-    setCommand('');
+    setCommand(''); // Clear the input field
   };
 
   const handleAddProcedureToQueue = () => {
     const { commands: procedureCommands, error } = generateCommandsFromProcedure();
+
     if (error) {
       setResponse(prev => prev + `${String.fromCharCode(10)}Procedure Error: ${error}`);
       return;
     }
+
     if (procedureCommands.length === 0 && !procedureText.trim()) {
       setResponse(prev => prev + `${String.fromCharCode(10)}Please enter a procedure to add.`);
       return;
     }
+    
     if (procedureCommands.length === 0 && procedureText.trim()) {
+      // This condition means text was entered but didn't match any procedure format
       setResponse(prev => prev + `${String.fromCharCode(10)}Procedure not recognized or generated no commands. Supported: SwVin, SwIo, SwPo, SwPoVi, Pout(Is), Pin(Vs).`);
       return;
     }
+
     if (procedureCommands.length > 0) {
       setCommands(prevCommands => [...prevCommands, ...procedureCommands]);
+      // Initialize response cells for each new command from the procedure
       setCommandResponses(prevResponses => [
         ...prevResponses,
         ...Array(procedureCommands.length * 8).fill('')
       ]);
-      setProcedureText('');
+      setProcedureText(''); // Clear the procedure input field
     }
   };
 
+
   const handleRemoveCommand = (indexToRemove: number) => {
     setCommands(prevCommands => prevCommands.filter((_, index) => index !== indexToRemove));
+    // Remove the corresponding 8 response cells
     setCommandResponses(prevResponses => {
       const newResponses = [...prevResponses];
       newResponses.splice(indexToRemove * 8, 8);
@@ -212,11 +255,15 @@ export default function Home() {
   };
 
   const handleActivatePort1 = async () => {
-    setIsPort1Busy(true); await activatePort1({}); setIsPort1Busy(false);
+    setIsPort1Busy(true); // Set busy state for port 1 specifically
+    await activatePort1({}); // Pass empty filter or specific VID/PID if needed
+    setIsPort1Busy(false);
   };
 
   const handleActivatePort2 = async () => {
-    setIsPort2Busy(true); await activatePort2({}); setIsPort2Busy(false);
+    setIsPort2Busy(true); // Set busy state for port 2 specifically
+    await activatePort2({}); // Pass empty filter or specific VID/PID if needed
+    setIsPort2Busy(false);
   };
 
   const handleSendMultipleCommands = async () => {
@@ -229,18 +276,21 @@ export default function Home() {
       return;
     }
 
+    // Validate and parse timeout
     let parsedTimeout = parseInt(userTimeout, 10);
     if (userTimeout.trim() === '' || isNaN(parsedTimeout) || parsedTimeout <= 0) {
-      parsedTimeout = 1000;
+      parsedTimeout = 1000; // Default to 1000ms if invalid or empty
     }
+
 
     setIsBusy(true);
     setChartData([]); // Clear previous chart data
     setChartConfig({}); // Clear previous chart config
-    let tempUpdatedResponses = [...commandResponses];
+    let tempUpdatedResponses = [...commandResponses]; // Work with a copy
     let collectedData: Record<number, { [viKey: string]: number }> = {}; // { poValue: { eff_vi1: effVal1, eff_vi2: effVal2 } }
     let uniqueViKeys = new Set<string>();
     let lastMeasuredVi: number | undefined = undefined;
+
 
     for (let i = 0; i < commands.length; i++) {
       const cmdInfo = commands[i];
@@ -248,70 +298,81 @@ export default function Home() {
       let targetPortName: string = '';
 
       if (cmdInfo.targetPort === 'COM3') {
-        if (isConnected1 && port1) { targetPortSerial = port1; targetPortName = 'COM3'; }
-        else {
+        if (isConnected1 && port1) { targetPortSerial = port1; targetPortName = 'COM3';}
+        else { 
           setResponse(prev => prev + `${String.fromCharCode(10)}Skipping cmd "${cmdInfo.text}": COM3 not active.`);
-          tempUpdatedResponses[i * 8] = 'Skipped (COM3 inactive)';
-          setCommandResponses([...tempUpdatedResponses]);
-          continue;
+          tempUpdatedResponses[i * 8] = 'Skipped (COM3 inactive)'; // Update specific response cell
+          setCommandResponses([...tempUpdatedResponses]); // Update state to reflect skipped command
+          continue; 
         }
       } else { // COM6
-        if (isConnected2 && port2) { targetPortSerial = port2; targetPortName = 'COM6'; }
-        else {
+        if (isConnected2 && port2) { targetPortSerial = port2; targetPortName = 'COM6';}
+        else { 
           setResponse(prev => prev + `${String.fromCharCode(10)}Skipping cmd "${cmdInfo.text}": COM6 not active.`);
-          tempUpdatedResponses[i * 8] = 'Skipped (COM6 inactive)';
-          setCommandResponses([...tempUpdatedResponses]);
-          continue;
+          tempUpdatedResponses[i * 8] = 'Skipped (COM6 inactive)'; // Update specific response cell
+          setCommandResponses([...tempUpdatedResponses]); // Update state
+          continue; 
         }
       }
 
       setResponse(prev => prev + `${String.fromCharCode(10)}Sending to ${targetPortName}: "${cmdInfo.text}"`);
       try {
         const cmdResponse = await sendAndRead(targetPortSerial, cmdInfo.text, setResponse, parsedTimeout);
-        tempUpdatedResponses[i * 8] = cmdResponse;
+        tempUpdatedResponses[i * 8] = cmdResponse; // Update main response cell
 
+        // Process response for Vi, Ii, Pi, Vo, Io, Po, Eff
+        // Based on README.md and ProcedureList.txt logic
         if (cmdInfo.text.endsWith('?')) {
           const parts = cmdResponse.split(',').map(p => p.trim());
           if (cmdInfo.targetPort === 'COM3') {
             switch (cmdInfo.text) {
-              case 'MEAS:VOLT?':
+              case 'MEAS:VOLT?': // Vi
                 if (parts.length > 0) {
-                  tempUpdatedResponses[i * 8 + 1] = parts[0]; // Vi
-                  lastMeasuredVi = parseFloat(parts[0]); // Store the last measured Vi
-                  if (isNaN(lastMeasuredVi)) lastMeasuredVi = undefined;
+                  tempUpdatedResponses[i * 8 + 1] = parts[0]; // Vi column
+                  lastMeasuredVi = parseFloat(parts[0]); // Store for potential Eff calc
+                  if(isNaN(lastMeasuredVi)) lastMeasuredVi = undefined;
                 }
                 break;
-              case 'MEAS:CURR?':
-                if (parts.length > 0) tempUpdatedResponses[i * 8 + 2] = parts[0]; // Ii
+              case 'MEAS:CURR?': // Ii
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 2] = parts[0]; // Ii column
                 if (cmdInfo.meta?.calculatesPi) {
-                  // Use lastMeasuredVi if available, otherwise search backwards
+                  // Pi calculation relies on a previous MEAS:VOLT? on COM3
+                  // More robust: find the most recent Vi measurement for this command sequence
                   let viStrToUse = '';
-                  if (lastMeasuredVi !== undefined && commands[i-1]?.text === 'MEAS:VOLT?' && commands[i-1]?.targetPort === 'COM3') {
-                     viStrToUse = lastMeasuredVi.toString();
+                  // Check if the immediately preceding command was MEAS:VOLT? on COM3 for this step
+                  if (i > 0 && commands[i-1]?.text === 'MEAS:VOLT?' && commands[i-1]?.targetPort === 'COM3') {
+                     viStrToUse = tempUpdatedResponses[(i-1) * 8 + 1]; // Vi from previous step's response
                   } else {
-                     // Fallback search if structure deviates
-                     for (let k = i - 1; k >= 0; k--) {
-                       if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM3') {
-                         viStrToUse = tempUpdatedResponses[k * 8 + 1];
-                         break;
-                       }
+                     // Fallback: search backwards for the relevant Vi for this specific measurement sequence
+                     // This might be complex if sequences are interleaved. Simpler: rely on lastMeasuredVi if set by procedure logic
+                     if (lastMeasuredVi !== undefined) {
+                        viStrToUse = lastMeasuredVi.toString();
+                     } else {
+                       // If lastMeasuredVi not set (e.g. Pin() without Vs), search back for any Vi
+                        for (let k = i - 1; k >= 0; k--) {
+                          if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM3') {
+                            viStrToUse = tempUpdatedResponses[k * 8 + 1];
+                            break;
+                          }
+                        }
                      }
                   }
+
                   const prevVi = parseFloat(viStrToUse);
                   const currentIi = parseFloat(parts[0]);
                   if (!isNaN(prevVi) && !isNaN(currentIi)) {
-                    tempUpdatedResponses[i * 8 + 3] = (prevVi * currentIi).toFixed(2); // Pi
+                    tempUpdatedResponses[i * 8 + 3] = (prevVi * currentIi).toFixed(2); // Pi column
                   }
                 }
                 break;
-              case 'MEAS:POW?':
-                if (parts.length > 0) tempUpdatedResponses[i * 8 + 3] = parts[0]; // Pi
+              case 'MEAS:POW?': // Pi (direct)
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 3] = parts[0]; // Pi column
                 break;
-              case 'MEAS:ALL?':
+              case 'MEAS:ALL?': // Vi, Ii, Pi
                 if (parts.length > 0) {
                   tempUpdatedResponses[i * 8 + 1] = parts[0]; // Vi
-                  lastMeasuredVi = parseFloat(parts[0]); // Store the last measured Vi from MEAS:ALL?
-                  if (isNaN(lastMeasuredVi)) lastMeasuredVi = undefined;
+                  lastMeasuredVi = parseFloat(parts[0]);
+                  if(isNaN(lastMeasuredVi)) lastMeasuredVi = undefined;
                 }
                 if (parts.length > 1) tempUpdatedResponses[i * 8 + 2] = parts[1]; // Ii
                 if (parts.length > 2) tempUpdatedResponses[i * 8 + 3] = parts[2]; // Pi
@@ -319,45 +380,75 @@ export default function Home() {
             }
           } else if (cmdInfo.targetPort === 'COM6') {
             switch (cmdInfo.text) {
-              case 'MEAS:VOLT?':
-                if (parts.length > 0) tempUpdatedResponses[i * 8 + 4] = parts[0]; // Vo
+              case 'MEAS:VOLT?': // Vo
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 4] = parts[0]; // Vo column
                 break;
-              case 'MEAS:CURR?':
-                if (parts.length > 0) tempUpdatedResponses[i * 8 + 5] = parts[0]; // Io
+              case 'MEAS:CURR?': // Io
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 5] = parts[0]; // Io column
                 let poVal: number | undefined = undefined;
                 let effVal: number | undefined = undefined;
                 const currentIo = parseFloat(parts[0]);
 
                 if (cmdInfo.meta?.calculatesPo) {
+                  // Po calculation relies on a previous MEAS:VOLT? on COM6
                   let prevVoStr = '';
-                  for (let k = i - 1; k >= 0; k--) {
-                    if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM6') {
-                      prevVoStr = tempUpdatedResponses[k * 8 + 4];
-                      break;
-                    }
-                  }
+                  // Check if the immediately preceding command was MEAS:VOLT? on COM6 for this step
+                   if (i > 0 && commands[i-1]?.text === 'MEAS:VOLT?' && commands[i-1]?.targetPort === 'COM6') {
+                     prevVoStr = tempUpdatedResponses[(i-1) * 8 + 4]; // Vo from previous step's response
+                   } else {
+                     // Fallback: search backwards for the relevant Vo
+                     for (let k = i - 1; k >= 0; k--) {
+                       if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM6') {
+                         prevVoStr = tempUpdatedResponses[k * 8 + 4];
+                         break;
+                       }
+                     }
+                   }
                   const prevVo = parseFloat(prevVoStr);
                   if (!isNaN(prevVo) && !isNaN(currentIo)) {
                     poVal = parseFloat((prevVo * currentIo).toFixed(2));
-                    tempUpdatedResponses[i * 8 + 6] = poVal.toString(); // Po
+                    tempUpdatedResponses[i * 8 + 6] = poVal.toString(); // Po column
                   }
                 }
 
                 if (cmdInfo.meta?.calculatesEff && lastMeasuredVi !== undefined) {
-                   let prevVoStrPo = ''; 
-                   for (let k = i - 1; k >= 0; k--) {
-                     if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM6') {
-                       prevVoStrPo = tempUpdatedResponses[k * 8 + 4];
-                       break; 
-                     }
-                   }
-                   const prevVo = parseFloat(prevVoStrPo);
-                   if (!isNaN(lastMeasuredVi) && !isNaN(prevVo) && lastMeasuredVi !== 0) {
-                     effVal = parseFloat((prevVo / lastMeasuredVi).toFixed(3));
-                     tempUpdatedResponses[i * 8 + 7] = effVal.toString(); // Eff
-                   }
-                   
-                   // Collect data for chart
+                  // Eff calculation: Po / Pi. Pi is based on lastMeasuredVi and its corresponding Ii.
+                  // For simplicity here, use Po from this step and lastMeasuredVi.
+                  // More accurate Eff would require finding the Pi corresponding to *this specific Po measurement point*.
+                  // The current structure implies Pi is measured before Po in sweep procedures.
+
+                  // We need Vo from this step (or previous COM6 MEAS:VOLT?) and Io from this step for Po.
+                  // And Vi from the corresponding COM3 MEAS:VOLT? and Ii from corresponding COM3 MEAS:CURR? for Pi.
+                  
+                  // Let's use the `poVal` if calculated, and find corresponding Pi
+                  // This assumes SwVin/SwIo/SwPo/SwPoVi structure where Vi/Ii are measured close to Vo/Io
+                  let piForEffStr = '';
+                  // Search for Pi calculated for the same "set" of measurements.
+                  // Typically, 'MEAS:CURR?' on COM3 (calculating Pi) precedes 'MEAS:CURR?' on COM6 (calculating Po/Eff).
+                  // So, `tempUpdatedResponses[(i-1) * 8 + 3]` could be Pi if the command structure is fixed.
+                  // For robustness, we'd need a more explicit link or rely on `lastMeasuredVi` and its context.
+
+                  // Using lastMeasuredVi assumes it's the relevant Vi for this Po measurement.
+                  // The `poVal` is Vo * Io. So Eff = (Vo * Io) / (lastMeasuredVi * Ii_for_lastMeasuredVi)
+                  // This gets complex quickly without a clear "measurement group" ID.
+                  // The ProcedureList.txt states for SwVin:
+                  // 4. MEAS:CURR? (COM3, Meta: calculatesPi: true) - Measures Ii. Pi is displayed.
+                  // 5. MEAS:CURR? (COM6, Meta: calculatesPo: true, calculatesEff: true) - Measures Io. Po, Eff displayed.
+                  // This implies Eff = Po / Pi where Pi was just calculated.
+                  // Let's find the Pi from the command just before this one if it was a COM3 current measurement.
+
+                  let piToUseForEff: number | undefined;
+                  if (i > 0 && commands[i-1]?.text === 'MEAS:CURR?' && commands[i-1]?.targetPort === 'COM3' && commands[i-1]?.meta?.calculatesPi) {
+                    piToUseForEff = parseFloat(tempUpdatedResponses[(i-1) * 8 + 3]);
+                  }
+                  
+                  if (poVal !== undefined && piToUseForEff !== undefined && piToUseForEff !== 0) {
+                    effVal = parseFloat((poVal / piToUseForEff).toFixed(3)); // Eff as decimal
+                    tempUpdatedResponses[i * 8 + 7] = effVal.toString(); // Eff column
+                  }
+
+
+                   // Collect data for chart: Po vs Eff, lines per Vi
                    if (poVal !== undefined && effVal !== undefined && lastMeasuredVi !== undefined) {
                      const viKey = `eff_${lastMeasuredVi.toFixed(1)}`; // Use 1 decimal place for key stability
                      uniqueViKeys.add(viKey);
@@ -367,12 +458,27 @@ export default function Home() {
                      collectedData[poVal][viKey] = effVal;
                    }
                 }
-                lastMeasuredVi = undefined; // Reset lastMeasuredVi after it's used for Eff calculation
+                // Important: Reset lastMeasuredVi after it's used for an Eff calculation cycle if that's the design.
+                // For SwPoVi, lastMeasuredVi is set by VOLT Vx, then used for the inner Po sweep.
+                // If it's a SwVin, lastMeasuredVi changes with each VOLT Vx step.
+                // The current logic resets it after any MEAS:CURR? on COM6 that calculates Eff.
+                // This might be too soon for SwPoVi if multiple Po points are taken for the same Vi.
+                // Let's only reset if the *next* command is a VOLT command or if it's the end of the queue.
+                if (cmdInfo.meta?.calculatesEff) {
+                    // Check if the *next* command will change Vi or if it's the end.
+                    // This logic is specifically for SwPoVi-like behavior where Vi is stable for a sub-sweep.
+                    // A simpler approach for SwVin: lastMeasuredVi is updated by MEAS:VOLT? COM3.
+                    // The current `lastMeasuredVi` is set by `MEAS:VOLT?` (COM3) or `MEAS:ALL?` (COM3).
+                    // It should persist for all Io/Po points under that Vi setting.
+                    // So, do not reset it here unconditionally. It should be reset/updated when Vi actually changes.
+                    // The procedure generation ensures MEAS:VOLT? (COM3) happens before a series of measurements for that Vi.
+                }
+
                 break;
-              case 'MEAS:POW?':
-                if (parts.length > 0) tempUpdatedResponses[i * 8 + 6] = parts[0]; // Po
+              case 'MEAS:POW?': // Po (direct)
+                if (parts.length > 0) tempUpdatedResponses[i * 8 + 6] = parts[0]; // Po column
                 break;
-              case 'MEAS:ALL?':
+              case 'MEAS:ALL?': // Vo, Io, Po
                 if (parts.length > 0) tempUpdatedResponses[i * 8 + 4] = parts[0]; // Vo
                 if (parts.length > 1) tempUpdatedResponses[i * 8 + 5] = parts[1]; // Io
                 if (parts.length > 2) tempUpdatedResponses[i * 8 + 6] = parts[2]; // Po
@@ -381,139 +487,190 @@ export default function Home() {
           }
         }
       } catch (error) {
-        tempUpdatedResponses[i * 8] = 'Error';
+        // Error from sendAndRead already updated the response log
+        tempUpdatedResponses[i * 8] = 'Error'; // Mark main response as Error
+        // Clear other cells for this command if an error occurred
         for (let k = 1; k < 8; k++) tempUpdatedResponses[i * 8 + k] = '';
       }
-      setCommandResponses([...tempUpdatedResponses]);
-      await new Promise(resolve => setTimeout(resolve, 100)); // Reduced delay slightly
+      setCommandResponses([...tempUpdatedResponses]); // Update state after each command
+      await new Promise(resolve => setTimeout(resolve, 100)); // Brief delay between commands
     }
 
     // --- Transform collected data for Recharts ---
     const transformedData: MultiLineChartDataPoint[] = Object.entries(collectedData)
       .map(([poStr, viEffMap]) => ({
         po: parseFloat(poStr),
-        ...viEffMap,
+        ...viEffMap, // Spread all {eff_viX: value} pairs
       }))
-      .sort((a, b) => a.po - b.po); // Sort by Po
+      .sort((a, b) => a.po - b.po); // Sort by Po for correct line drawing
 
     // --- Generate Chart Config ---    
     const newChartConfig: ChartConfig = {};
+    // Sort viKeys numerically by the Vi value for consistent legend order
     Array.from(uniqueViKeys).sort((a, b) => parseFloat(a.split('_')[1]) - parseFloat(b.split('_')[1])).forEach((viKey, index) => {
-      const viValue = viKey.split('_')[1];
+      const viValue = viKey.split('_')[1]; // Extract Vi value from "eff_12.1"
       newChartConfig[viKey] = {
-        label: `Eff @ ${viValue}V`,
-        color: lineColors[index % lineColors.length], // Cycle through colors
+        label: `Eff @ ${viValue}V`, // Legend label like "Eff @ 12.1V"
+        color: lineColors[index % lineColors.length], // Cycle through predefined colors
       };
     });
 
     setChartData(transformedData);
     setChartConfig(newChartConfig);
     setIsBusy(false);
+    // Do not clear commands: setCommands([]);
+    // Do not clear responses: setCommandResponses([]);
   };
 
+  const handleLoadParams = async () => {
+    if (!converterModel.trim()) {
+      setResponse(prev => prev + `${String.fromCharCode(10)}Please enter a Converter Model to load parameters.`);
+      return;
+    }
+    setIsBusy(true);
+    setResponse(prev => prev + `${String.fromCharCode(10)}Loading parameters for model: ${converterModel}...`);
+    const params = await loadConverterParams(converterModel);
+    if (params) {
+      setNominalPower(params.nominalPower);
+      setViMin(params.viMin);
+      setViMax(params.viMax);
+      setVoNominal(params.voNominal);
+      setResponse(prev => prev + `${String.fromCharCode(10)}Parameters loaded for ${converterModel}.`);
+    } else {
+      setResponse(prev => prev + `${String.fromCharCode(10)}Failed to load parameters for ${converterModel}. Model not found or error occurred.`);
+    }
+    setIsBusy(false);
+  };
+
+
   return (
-    <div className="flex flex-col items-center justify-start min-h-screen p-8">
+    <div className="flex flex-col items-center justify-start min-h-screen p-8 w-full">
       <h1 className="text-2xl font-bold mb-4">DC Converter Tester V0</h1>
       
-      <div className="w-full grid grid-cols-2 md:grid-cols-5 gap-4 mb-6 p-4 border rounded-md">
-        <div>
-          <Label htmlFor="nominalPower" className="block text-sm font-medium text-foreground mb-1">Nominal Power (W)</Label>
-          <Input id="nominalPower" type="number" placeholder="e.g., 100" value={nominalPower} onChange={(e) => setNominalPower(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="viMin" className="block text-sm font-medium text-foreground mb-1">Vi (min) (V)</Label>
-          <Input id="viMin" type="number" placeholder="e.g., 9" value={viMin} onChange={(e) => setViMin(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="viMax" className="block text-sm font-medium text-foreground mb-1">Vi (Max) (V)</Label>
-          <Input id="viMax" type="number" placeholder="e.g., 36" value={viMax} onChange={(e) => setViMax(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="voNominal" className="block text-sm font-medium text-foreground mb-1">Vo (Nominal) (V)</Label>
-          <Input id="voNominal" type="number" placeholder="e.g., 12" value={voNominal} onChange={(e) => setVoNominal(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="userTimeout" className="block text-sm font-medium text-foreground mb-1">Cmd Timeout (ms)</Label>
-          <Input 
-            id="userTimeout" 
-            type="number" 
-            placeholder="e.g., 1000 (default 1000)" 
-            value={userTimeout} 
-            onChange={(e) => setUserTimeout(e.target.value)} 
-          />
-        </div>
-      </div>
+      <div className="w-full max-w-[80rem] space-y-4"> {/* Increased max-width and using space-y for consistent spacing */}
 
-      <div className="w-full space-y-4">
-        <div>
-          <Label htmlFor="procedure" className="block text-sm font-medium text-foreground">Enter Procedure:</Label>
-          <div className="flex items-center space-x-4 mt-1">
+        {/* Converter Model Input Section */}
+        <div className="w-full p-4 border rounded-md shadow-sm">
+          <Label htmlFor="converterModel" className="block text-sm font-medium text-foreground mb-1">Converter Model</Label>
+          <div className="flex items-center gap-2">
+            <Input 
+              id="converterModel" 
+              type="text" 
+              placeholder="e.g., XYZ-123 (type and click Load)" 
+              value={converterModel} 
+              onChange={(e) => setConverterModel(e.target.value)}
+              className="flex-grow"
+              disabled={isBusy}
+            />
+            <Button onClick={handleLoadParams} disabled={isBusy || !converterModel.trim()} className="h-10">
+              Load Params
+            </Button>
+          </div>
+        </div>
+        
+        {/* User Parameters Grid Section */}
+        <div className="w-full p-4 border rounded-md shadow-sm">
+          <h2 className="text-lg font-semibold mb-3 text-foreground">Device Parameters</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+            <div>
+              <Label htmlFor="nominalPower" className="block text-sm font-medium text-foreground mb-1">Nominal Power (W)</Label>
+              <Input id="nominalPower" type="number" placeholder="e.g., 100" value={nominalPower} onChange={(e) => setNominalPower(e.target.value)} disabled={isBusy} className="w-full"/>
+            </div>
+            <div>
+              <Label htmlFor="viMin" className="block text-sm font-medium text-foreground mb-1">Vi (min) (V)</Label>
+              <Input id="viMin" type="number" placeholder="e.g., 9" value={viMin} onChange={(e) => setViMin(e.target.value)} disabled={isBusy} className="w-full"/>
+            </div>
+            <div>
+              <Label htmlFor="viMax" className="block text-sm font-medium text-foreground mb-1">Vi (Max) (V)</Label>
+              <Input id="viMax" type="number" placeholder="e.g., 36" value={viMax} onChange={(e) => setViMax(e.target.value)} disabled={isBusy} className="w-full"/>
+            </div>
+            <div>
+              <Label htmlFor="voNominal" className="block text-sm font-medium text-foreground mb-1">Vo (Nominal) (V)</Label>
+              <Input id="voNominal" type="number" placeholder="e.g., 12" value={voNominal} onChange={(e) => setVoNominal(e.target.value)} disabled={isBusy} className="w-full"/>
+            </div>
+            <div>
+              <Label htmlFor="userTimeout" className="block text-sm font-medium text-foreground mb-1">Cmd Timeout (ms)</Label>
+              <Input 
+                id="userTimeout" 
+                type="number" 
+                placeholder="e.g., 1000" 
+                value={userTimeout} 
+                onChange={(e) => setUserTimeout(e.target.value)} 
+                disabled={isBusy}
+                className="w-full"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Procedure and Command Input Section */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="p-4 border rounded-md shadow-sm">
+            <Label htmlFor="procedure" className="block text-sm font-medium text-foreground">Enter Procedure:</Label>
             <Input
               id="procedure"
-              placeholder="e.g., SwPoVi(10,50,5,12,24,3), SwVin(...), Pin(...)"
+              placeholder="e.g., SwPoVi(10,50,5,12,24,3)"
               value={procedureText}
               onChange={(e) => setProcedureText(e.target.value)}
-              className="flex-grow"
+              className="mt-1 w-full"
               disabled={isPort1Busy || isPort2Busy || isBusy}
             />
+            <Button onClick={handleAddProcedureToQueue} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>
+              Add Procedure to Queue
+            </Button>
           </div>
-          <Button onClick={handleAddProcedureToQueue} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>
-            Add Procedure to Queue
-          </Button>
+
+          <div className="p-4 border rounded-md shadow-sm">
+            <Label htmlFor="command" className="block text-sm font-medium text-foreground">Enter Command:</Label>
+            <div className="flex items-center space-x-2 mt-1">
+              <Input
+                id="command"
+                placeholder="Enter a command"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                className="flex-grow"
+                disabled={isPort1Busy || isPort2Busy || isBusy}
+              />
+              <RadioGroup value={selectedCommandPort} onValueChange={(value: 'COM3' | 'COM6') => setSelectedCommandPort(value)} className="flex items-center">
+                <div className="flex items-center space-x-1"><RadioGroupItem value="COM3" id="r_com3" /><Label htmlFor="r_com3" className="text-xs">COM3</Label></div>
+                <div className="flex items-center space-x-1"><RadioGroupItem value="COM6" id="r_com6" /><Label htmlFor="r_com6" className="text-xs">COM6</Label></div>
+              </RadioGroup>
+            </div>
+            <Button onClick={handleAddCommand} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>Add Command to Queue</Button>
+          </div>
         </div>
 
-        <div>
-          <Label htmlFor="command" className="block text-sm font-medium text-foreground">Enter Command:</Label>
-          <div className="flex items-center space-x-4 mt-1">
-            <Input
-              id="command"
-              placeholder="Enter a command"
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              className="flex-grow"
-              disabled={isPort1Busy || isPort2Busy || isBusy}
-            />
-            <RadioGroup defaultValue="COM3" value={selectedCommandPort} onValueChange={(value: 'COM3' | 'COM6') => setSelectedCommandPort(value)} className="flex items-center">
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="COM3" id="com3" /><Label htmlFor="com3">COM3</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="COM6" id="com6" /><Label htmlFor="com6">COM6</Label>
-              </div>
-            </RadioGroup>
-          </div>
-          <Button onClick={handleAddCommand} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>Add Command to Queue</Button>
-        </div>
 
         {commands.length > 0 && (
-          <div className="w-full mt-4 h-[150px] overflow-y-auto"> 
+          <div className="w-full mt-4 h-[200px] overflow-y-auto border rounded-md shadow-sm"> 
             <Table>
               <TableCaption>List of commands in queue</TableCaption>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[90px]">Resp</TableHead>
-                  {["Vi", "Ii", "Pi", "Vo", "Io", "Po", "Eff"].map((label, i) => (<TableHead key={`data-header-${i}`} className="w-[75px]">{label}</TableHead>))}
-                  <TableHead className="w-[120px]">Command</TableHead>
-                  <TableHead className="w-[70px]">Port</TableHead>
-                  <TableHead className="w-[80px]">Actions</TableHead>
+                  <TableHead className="w-[100px] sticky top-0 bg-card z-10">Resp</TableHead>
+                  {["Vi", "Ii", "Pi", "Vo", "Io", "Po", "Eff"].map((label, i) => (<TableHead key={`data-header-${i}`} className="w-[80px] sticky top-0 bg-card z-10">{label}</TableHead>))}
+                  <TableHead className="min-w-[150px] sticky top-0 bg-card z-10">Command</TableHead>
+                  <TableHead className="w-[70px] sticky top-0 bg-card z-10">Port</TableHead>
+                  <TableHead className="w-[90px] sticky top-0 bg-card z-10">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {commands.map((cmdInfo, index) => (
                   <TableRow key={index}>
+                    {/* Response cells (8 of them) */}
                     {Array.from({ length: 8 }).map((_, cellIndex) => (
-                      <TableCell key={`cell-${index}-${cellIndex}`}>
+                      <TableCell key={`cell-${index}-${cellIndex}`} className="p-1">
                         <Input 
                           type="text" 
                           value={commandResponses[index * 8 + cellIndex] || ''} 
                           readOnly 
-                          className={`h-8 text-xs ${cellIndex === 0 ? "w-[90px]" : "w-[75px]"}`} 
+                          className={`h-8 text-xs ${cellIndex === 0 ? "w-[95px]" : "w-[75px]"}`} 
                         />
                       </TableCell>
                     ))}
-                    <TableCell className="truncate text-xs" style={{ maxWidth: '120px' }}>{cmdInfo.text}</TableCell>
-                    <TableCell className="text-xs">{cmdInfo.targetPort}</TableCell>
-                    <TableCell>
+                    <TableCell className="truncate text-xs p-1" style={{ maxWidth: '150px' }}>{cmdInfo.text}</TableCell>
+                    <TableCell className="text-xs p-1">{cmdInfo.targetPort}</TableCell>
+                    <TableCell className="p-1">
                       <Button
                         variant="destructive"
                         size="sm"
@@ -531,56 +688,59 @@ export default function Home() {
           </div>
         )}
 
-        <Button onClick={handleSendMultipleCommands} className="mt-2 w-full" disabled={(!isConnected1 && !isConnected2) || isBusy || isPort1Busy || isPort2Busy || commands.length === 0}>
+        <Button onClick={handleSendMultipleCommands} className="w-full" disabled={(!isConnected1 && !isConnected2) || isBusy || isPort1Busy || isPort2Busy || commands.length === 0}>
           {isBusy ? 'Sending Commands...' : 'Send All Commands from Queue'}
         </Button>
 
-        {/* Updated Chart Display Area */}
+        {/* Chart Display Area */}
         {chartData.length > 0 && Object.keys(chartConfig).length > 0 && (
-          <Card className="w-full mt-4">
+          <Card className="w-full mt-4 shadow-sm">
             <CardHeader>
               <CardTitle>Efficiency vs. Output Power</CardTitle>
-              <CardDescription>Efficiency curves at different input voltages</CardDescription>
+              <CardDescription>Efficiency curves at different input voltages (Eff = Po/Pi)</CardDescription>
             </CardHeader>
             <CardContent>
               <ChartContainer config={chartConfig} className="min-h-[300px] w-full"> 
-                <LineChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+                <LineChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 20 }}> {/* Increased bottom margin for XAxis label */}
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     dataKey="po" 
                     type="number" 
-                    label={{ value: "Output Power (Po) (W)", position: "insideBottom", offset: -5 }}
+                    name="Output Power (Po)"
+                    label={{ value: "Output Power (Po) (W)", position: "insideBottom", offset: -15 }} // Adjusted offset
                     domain={['auto', 'auto']}
                     tickFormatter={(value) => value.toFixed(1)}
                     allowDuplicatedCategory={false}
                   />
                   <YAxis 
+                    dataKey="eff" // Assuming 'eff' will be a common key if only one line, or handled by Line components
+                    name="Efficiency (Eff)"
                     label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }}
-                    domain={[0, 'auto']} 
+                    domain={[0, 'auto']} // Example: 0 to 1.2 for efficiency up to 120% if needed, or 'auto'
                     tickFormatter={(value) => value.toFixed(3)}
                   />
                   <ChartTooltip 
-                    cursor={true} // Show cursor line
+                    cursor={true} 
                     content={<ChartTooltipContent 
-                      hideLabel // Hide the default Po label in tooltip
-                      labelFormatter={(value) => `Po: ${value.toFixed(2)} W`} // Format Po label
-                      formatter={(value, name) => [
-                         (value as number).toFixed(3),
-                         chartConfig[name]?.label || name // Get label from config
-                      ]}
+                      // hideLabel // Default label (XAxis dataKey) might be fine
+                      labelFormatter={(value, payload) => `Po: ${Number(payload?.[0]?.payload?.po || value).toFixed(2)} W`}
+                      formatter={(value, name, props) => {
+                        // value is the Y-value (eff), name is the dataKey of the line (e.g., "eff_12.0")
+                        const label = chartConfig[name as string]?.label || name;
+                        return [(value as number).toFixed(3), label];
+                      }}
                     />} 
                   />
-                  {/* Dynamically generate lines based on chartConfig */}
-                  {Object.keys(chartConfig).map((key) => (
+                  {Object.keys(chartConfig).map((key) => ( // key is like "eff_12.0"
                     <Line 
                       key={key} 
                       type="monotone" 
-                      dataKey={key} 
+                      dataKey={key} // This is the Y-value for this specific line
                       stroke={chartConfig[key]?.color} 
                       strokeWidth={2} 
                       dot={false} 
-                      name={chartConfig[key]?.label} // Use label from config for legend/tooltip
-                      connectNulls // Connect lines even if some Vi points are missing for a specific Po
+                      name={chartConfig[key]?.label} // Used by Legend and Tooltip if not overridden
+                      connectNulls 
                     />
                   ))}
                   <ChartLegend content={<ChartLegendContent />} />
@@ -589,8 +749,9 @@ export default function Home() {
             </CardContent>
           </Card>
         )}
-
-        <div className="grid grid-cols-2 gap-4">
+        
+        {/* Port Activation Buttons */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Button onClick={handleActivatePort1} variant="outline" className="w-full" disabled={isPort1Busy || isBusy}>
             {isPort1Busy ? (isConnected1 ? 'Disconnecting COM3...' : 'Connecting COM3...') : (isConnected1 ? 'Deactivate COM3 Port' : 'Activate COM3 Port')}
             <Plug className="ml-2 h-4 w-4" />
@@ -601,13 +762,14 @@ export default function Home() {
           </Button>
         </div>
 
+        {/* Response Log */}
         <div>
           <Label htmlFor="response" className="block text-sm font-medium text-foreground">Response Log:</Label>
           <Textarea 
             ref={responseLogRef} 
             id="response" 
             placeholder="Response log will be displayed here" 
-            value={response ? response + '▋' : '▋'} 
+            value={response ? response + String.fromCharCode(160) : String.fromCharCode(160)} // Non-breaking space as cursor
             readOnly 
             className="mt-1 h-24 resize-none text-xs bg-black text-white font-mono" 
           />
@@ -616,3 +778,4 @@ export default function Home() {
     </div>
   );
 }
+
