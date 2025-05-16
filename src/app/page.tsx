@@ -62,12 +62,22 @@ const procedureListItems = [
   {
     value: 'SwVin',
     label: 'SwVin(Vs1, Vs2, Nsw)',
+    description: `Sweeps the input voltage (Vin) and takes measurements.
+Parameters:
+  Vs1: Starting input voltage (V). Defaults to Vi(min).
+  Vs2: Ending input voltage (V). Defaults to Vi(max).
+  Nsw: Number of sweep steps (2-20). Defaults to 2.`,
     getTemplate: (params: Partial<DeviceProcedureParams>) =>
       `SwVin(${params.viMin || ''}, ${params.viMax || ''}, )`,
   },
   {
     value: 'SwIo',
     label: 'SwIo(Is1, Is2, Nsw)',
+    description: `Sweeps the output current (Io) and takes measurements.
+Parameters:
+  Is1: Starting output current (A). Defaults to 0.
+  Is2: Ending output current (A). Defaults to (Nominal Power / Vo (Nominal)).
+  Nsw: Number of sweep steps (2-20). Defaults to 2.`,
     getTemplate: (params: Partial<DeviceProcedureParams>) => {
       const nomP = parseFloat(params.nominalPower || '');
       const voN = parseFloat(params.voNominal || '');
@@ -80,22 +90,37 @@ const procedureListItems = [
   {
     value: 'Pout',
     label: 'Pout(Is)',
+    description: `Sets an optional output current Is, measures Vo & Io, then calculates Po.
+Parameters:
+  Is: Target output current (A) (optional).`,
     getTemplate: () => `Pout()`,
   },
   {
     value: 'Pin',
     label: 'Pin(Vs)',
+    description: `Sets an optional input voltage Vs, measures Vi & Ii, then calculates Pi.
+Parameters:
+  Vs: Target input voltage (V) (optional, must be within Vi(min)/Vi(max)).`,
     getTemplate: () => `Pin()`,
   },
   {
     value: 'SwPo',
     label: 'SwPo(Ps1, Ps2, Nsw)',
+    description: `Sweeps output power (Po). Calculates required Io based on Vo (Nominal).
+Parameters:
+  Ps1: Starting output power (W). Defaults to 0.
+  Ps2: Ending output power (W). Defaults to Nominal Power.
+  Nsw: Number of sweep steps (2-20). Defaults to 2.`,
     getTemplate: (params: Partial<DeviceProcedureParams>) =>
       `SwPo(, ${params.nominalPower || ''}, )`,
   },
   {
     value: 'SwPoVi',
     label: 'SwPoVi(Ps1, Ps2, Nsw, Vs1, Vs2, Nswv)',
+    description: `Sweeps Po across a range of Vi. For each Vi step, performs a full SwPo sweep.
+Parameters:
+  Ps1, Ps2, Nsw: For inner SwPo sweep (defaults similar to SwPo).
+  Vs1, Vs2, Nswv: For outer Vi sweep (defaults similar to SwVin for Vs1/Vs2).`,
     getTemplate: (params: Partial<DeviceProcedureParams>) =>
       `SwPoVi(, ${params.nominalPower || ''}, , ${params.viMin || ''}, ${params.viMax || ''}, )`,
   },
@@ -217,6 +242,8 @@ export default function Home() {
   const [viMax, setViMax] = useState('');
   const [voNominal, setVoNominal] = useState('');
   const [userTimeout, setUserTimeout] = useState<string>('');
+  const [selectedProcedureDescription, setSelectedProcedureDescription] = useState<string | null>(null);
+
 
   const { converterModel, setConverterModel, availableModels, loadConverterParams, saveConverterParams } = useConverterModel();
 
@@ -278,6 +305,7 @@ export default function Home() {
         ...Array(procedureCommands.length * 8).fill('')
       ]);
       setProcedureText('');
+      setSelectedProcedureDescription(null); // Clear description after adding to queue
     }
   };
 
@@ -540,15 +568,18 @@ export default function Home() {
   };
 
   const handleProcedureSelect = (value: string) => {
-    const selectedProcedure = procedureListItems.find(p => p.value === value);
-    if (selectedProcedure) {
+    const selectedProc = procedureListItems.find(p => p.value === value);
+    if (selectedProc) {
       const currentParams: DeviceProcedureParams = {
         nominalPower,
         viMin,
         viMax,
         voNominal,
       };
-      setProcedureText(selectedProcedure.getTemplate(currentParams));
+      setProcedureText(selectedProc.getTemplate(currentParams));
+      setSelectedProcedureDescription(selectedProc.description);
+    } else {
+      setSelectedProcedureDescription(null);
     }
   };
 
@@ -650,6 +681,12 @@ export default function Home() {
             <Button onClick={handleAddProcedureToQueue} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>
               Add Procedure to Queue
             </Button>
+            {selectedProcedureDescription && (
+              <div className="mt-3 p-3 border rounded-md bg-muted/50 text-sm">
+                <h4 className="font-semibold mb-1 text-foreground">Procedure Details:</h4>
+                <pre className="whitespace-pre-wrap font-sans text-muted-foreground">{selectedProcedureDescription}</pre>
+              </div>
+            )}
           </div>
 
           <div className="p-4 border rounded-md shadow-sm">
