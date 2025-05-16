@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -261,13 +262,21 @@ const ChartLegend = RechartsPrimitive.Legend
 const ChartLegendContent = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div"> &
-    Pick<RechartsPrimitive.LegendProps, "payload" | "verticalAlign"> & {
+    Pick<RechartsPrimitive.LegendProps, "payload" | "verticalAlign" | "layout" | "align"> & {
       hideIcon?: boolean
       nameKey?: string
     }
 >(
   (
-    { className, hideIcon = false, payload, verticalAlign = "bottom", nameKey },
+    {
+      className,
+      hideIcon = false,
+      payload,
+      layout = "horizontal", // Default layout from props
+      verticalAlign = "bottom", // Default verticalAlign from props
+      nameKey,
+      // align prop is also available if needed
+    },
     ref
   ) => {
     const { config } = useChart()
@@ -280,20 +289,25 @@ const ChartLegendContent = React.forwardRef<
       <div
         ref={ref}
         className={cn(
-          "flex items-center justify-center gap-4",
-          verticalAlign === "top" ? "pb-3" : "pt-3",
+          "flex gap-2 p-1", // General styling for the legend container
+          layout === "vertical"
+            ? "flex-col items-start" // Vertical layout: items stack and align left
+            : "flex-row items-center justify-center", // Horizontal layout: items in a row, centered
+          // Original padding logic for horizontal layouts at top/bottom
+          layout === "horizontal" && verticalAlign === "top" ? "pb-3" : "",
+          layout === "horizontal" && verticalAlign === "bottom" ? "pt-3" : "",
           className
         )}
       >
         {payload.map((item) => {
-          const key = `${nameKey || item.dataKey || "value"}`
-          const itemConfig = getPayloadConfigFromPayload(config, item, key)
+          const configKey = `${nameKey || item.dataKey || item.value}` // item.value often holds the series name
+          const itemConfig = getPayloadConfigFromPayload(config, item, configKey)
 
           return (
             <div
-              key={item.value}
+              key={item.value as React.Key} // Use item.value (series name) as key
               className={cn(
-                "flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground"
+                "flex items-center gap-1.5 whitespace-nowrap"
               )}
             >
               {itemConfig?.icon && !hideIcon ? (
@@ -306,7 +320,9 @@ const ChartLegendContent = React.forwardRef<
                   }}
                 />
               )}
-              {itemConfig?.label}
+              <span className="text-xs text-muted-foreground">
+                {itemConfig?.label || item.value} {/* Fallback to item.value for label */}
+              </span>
             </div>
           )
         })}

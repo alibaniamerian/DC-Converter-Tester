@@ -768,7 +768,7 @@ export default function Home() {
             </CardHeader>
             <CardContent>
               <ChartContainer config={chartConfig} className="min-h-[300px] w-full"> 
-                <LineChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 20 }}>
+                <LineChart data={chartData} margin={{ top: 5, right: 100, left: 0, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     dataKey="po" 
@@ -807,7 +807,12 @@ export default function Home() {
                       connectNulls 
                     />
                   ))}
-                  <ChartLegend content={<ChartLegendContent />} />
+                  <ChartLegend 
+                    content={<ChartLegendContent />} 
+                    layout="vertical" 
+                    verticalAlign="middle" 
+                    align="right"
+                  />
                 </LineChart>
               </ChartContainer>
             </CardContent>
