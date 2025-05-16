@@ -51,6 +51,57 @@ const lineColors = [
   "hsl(var(--chart-5))",
 ];
 
+interface DeviceProcedureParams {
+  viMin: string;
+  viMax: string;
+  nominalPower: string;
+  voNominal: string;
+}
+
+const procedureListItems = [
+  {
+    value: 'SwVin',
+    label: 'SwVin(Vs1, Vs2, Nsw)',
+    getTemplate: (params: Partial<DeviceProcedureParams>) =>
+      `SwVin(${params.viMin || ''}, ${params.viMax || ''}, )`,
+  },
+  {
+    value: 'SwIo',
+    label: 'SwIo(Is1, Is2, Nsw)',
+    getTemplate: (params: Partial<DeviceProcedureParams>) => {
+      const nomP = parseFloat(params.nominalPower || '');
+      const voN = parseFloat(params.voNominal || '');
+      const defaultIs2 = (!isNaN(nomP) && !isNaN(voN) && voN !== 0)
+        ? (nomP / voN).toFixed(2)
+        : '';
+      return `SwIo(, ${defaultIs2}, )`;
+    },
+  },
+  {
+    value: 'Pout',
+    label: 'Pout(Is)',
+    getTemplate: () => `Pout()`,
+  },
+  {
+    value: 'Pin',
+    label: 'Pin(Vs)',
+    getTemplate: () => `Pin()`,
+  },
+  {
+    value: 'SwPo',
+    label: 'SwPo(Ps1, Ps2, Nsw)',
+    getTemplate: (params: Partial<DeviceProcedureParams>) =>
+      `SwPo(, ${params.nominalPower || ''}, )`,
+  },
+  {
+    value: 'SwPoVi',
+    label: 'SwPoVi(Ps1, Ps2, Nsw, Vs1, Vs2, Nswv)',
+    getTemplate: (params: Partial<DeviceProcedureParams>) =>
+      `SwPoVi(, ${params.nominalPower || ''}, , ${params.viMin || ''}, ${params.viMax || ''}, )`,
+  },
+];
+
+
 async function sendAndRead(
   port: SerialPort | null,
   commandToSend: string,
@@ -448,7 +499,7 @@ export default function Home() {
 
   const handleModelSelectAndLoad = async (selectedValue: string) => {
     if (!selectedValue) return;
-    setConverterModel(selectedValue); // Update the Input field and central state
+    setConverterModel(selectedValue); 
     
     setIsBusy(true);
     setResponse(prev => prev + `${String.fromCharCode(10)}Loading parameters for model: ${selectedValue}...`);
@@ -461,8 +512,6 @@ export default function Home() {
       setResponse(prev => prev + `${String.fromCharCode(10)}Parameters loaded for ${selectedValue}.`);
     } else {
       setResponse(prev => prev + `${String.fromCharCode(10)}Failed to load parameters for ${selectedValue}. Model not found or error occurred.`);
-      // Optionally clear parameter fields if model not found or has no params
-      // setNominalPower(''); setViMin(''); setViMax(''); setVoNominal('');
     }
     setIsBusy(false);
   };
@@ -490,6 +539,19 @@ export default function Home() {
     setIsBusy(false);
   };
 
+  const handleProcedureSelect = (value: string) => {
+    const selectedProcedure = procedureListItems.find(p => p.value === value);
+    if (selectedProcedure) {
+      const currentParams: DeviceProcedureParams = {
+        nominalPower,
+        viMin,
+        viMax,
+        voNominal,
+      };
+      setProcedureText(selectedProcedure.getTemplate(currentParams));
+    }
+  };
+
 
   return (
     <div className="flex flex-col items-center justify-start min-h-screen p-8 w-full">
@@ -506,7 +568,7 @@ export default function Home() {
                 value={converterModel}
                 onChange={(e) => setConverterModel(e.target.value)}
                 disabled={isBusy}
-                className="w-full"
+                className="flex-grow"
               />
             <Select value={converterModel} onValueChange={handleModelSelectAndLoad} disabled={isBusy}>
               <SelectTrigger className="w-[280px] h-10">
@@ -562,15 +624,29 @@ export default function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="p-4 border rounded-md shadow-sm">
-            <Label htmlFor="procedure" className="block text-sm font-medium text-foreground">Enter Procedure:</Label>
-            <Input
-              id="procedure"
-              placeholder="e.g., SwPoVi(10,50,5,12,24,3)"
-              value={procedureText}
-              onChange={(e) => setProcedureText(e.target.value)}
-              className="mt-1 w-full"
-              disabled={isPort1Busy || isPort2Busy || isBusy}
-            />
+            <Label htmlFor="procedure" className="block text-sm font-medium text-foreground mb-1">Enter Procedure:</Label>
+            <div className="flex items-center gap-2 mt-1">
+              <Input
+                id="procedure"
+                placeholder="e.g., SwPoVi(10,50,5,12,24,3) or select..."
+                value={procedureText}
+                onChange={(e) => setProcedureText(e.target.value)}
+                className="flex-grow"
+                disabled={isPort1Busy || isPort2Busy || isBusy}
+              />
+              <Select onValueChange={handleProcedureSelect} disabled={isPort1Busy || isPort2Busy || isBusy}>
+                <SelectTrigger className="w-[250px] h-10">
+                  <SelectValue placeholder="Select a procedure..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {procedureListItems.map((proc) => (
+                    <SelectItem key={proc.value} value={proc.value}>
+                      {proc.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Button onClick={handleAddProcedureToQueue} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>
               Add Procedure to Queue
             </Button>
