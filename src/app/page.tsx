@@ -780,7 +780,6 @@ export default function Home() {
                     allowDuplicatedCategory={false}
                   />
                   <YAxis 
-                    dataKey="eff" 
                     name="Efficiency (Eff)"
                     label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }}
                     domain={[0, 'auto']} 
