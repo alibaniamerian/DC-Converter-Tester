@@ -16,6 +16,7 @@ import { useConverterModel, type ConverterParams } from '../hooks/useConverterMo
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 
+import html2canvas from 'html2canvas';
 import {
   LineChart,
   Line,
@@ -525,6 +526,26 @@ export default function Home() {
     setIsBusy(false);
   };
 
+  const handleCaptureChart = async () => {
+    const chartElement = document.getElementById('efficiency-chart-card');
+    if (!chartElement) {
+      setResponse(prev => prev + `${String.fromCharCode(10)}Error: Chart element not found.`);
+      return;
+    }
+
+    setResponse(prev => prev + `${String.fromCharCode(10)}Capturing chart...`);
+    const canvas = await html2canvas(chartElement);
+    const image = canvas.toDataURL('image/png');
+
+    // Create a temporary download link
+    const link = document.createElement('a');
+    const filename = `${converterModel || 'converter'}-${procedureText.replace(/[^a-zA-Z0-9]/g, '_') || 'procedure'}.png`;
+    link.download = filename;
+    link.href = image;
+    link.click();
+    setResponse(prev => prev + `${String.fromCharCode(10)}Chart captured and download initiated.`);
+  };
+
   const handleModelSelectAndLoad = async (selectedValue: string) => {
     if (!selectedValue) return;
     setConverterModel(selectedValue); 
@@ -761,7 +782,10 @@ export default function Home() {
         </Button>
 
         {chartData.length > 0 && Object.keys(chartConfig).length > 0 && (
-          <Card className="w-full mt-4 shadow-sm">
+          <Card id="efficiency-chart-card" className="w-full mt-4 shadow-sm">
+            <div className="flex justify-end p-2">
+              <Button onClick={handleCaptureChart} size="sm">Capture Plot</Button>
+            </div>
             <CardHeader>
               <CardTitle>Efficiency vs. Output Power</CardTitle>
               <CardDescription>Efficiency curves at different input voltages (Eff = Po/Pi)</CardDescription>
