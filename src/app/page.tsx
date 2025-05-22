@@ -13,7 +13,9 @@ import { Label } from "@/components/ui/label";
 import { useComPort } from '../hooks/useComPort';
 import { useProcedure } from '../hooks/useProcedure';
 import { useConverterModel, type ConverterParams } from '../hooks/useConverterModel';
+import { useEmailSender } from '../hooks/useEmailSender';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import html2canvas from 'html2canvas';
 
 
 import {
@@ -247,6 +249,29 @@ export default function Home() {
 
   const { converterModel, setConverterModel, availableModels, loadConverterParams, saveConverterParams } = useConverterModel();
 
+  // >>> Paste this block here (between useConverterModel and useComPort) <<<
+  const {
+    showUserInfoForm,
+    userName, setUserName,
+    userEmail, setUserEmail,
+    userCompany, setUserCompany,
+    userIndustry, setUserIndustry,
+    userPhone, setUserPhone,
+    isSendingEmail,
+    handleShowUserInfoForm, // This function will be called by handleCaptureChart
+    handleSendEmail,        // This function will be called by the "Send Email" button
+  } = useEmailSender({
+    deviceModel: converterModel, // Pass converterModel state
+    nominalPower: nominalPower, // Pass nominalPower state
+    viMin: viMin,               // Pass viMin state
+    viMax: viMax,               // Pass viMax state
+    voNominal: voNominal,       // Pass voNominal state
+    // Pass other device parameters if needed by the hook's handleSendEmail
+  });
+  // >>> End of block to paste <<<
+
+
+
 
   const { port1, isConnected1, activatePort1, port2, isConnected2, activatePort2 } = useComPort({
     setIsBusy: setIsBusy, 
@@ -266,6 +291,41 @@ export default function Home() {
       responseLogRef.current.scrollTop = responseLogRef.current.scrollHeight;
     }
   }, [response]);
+    // >>> Paste this handleCaptureChart function here (before handleAddCommand) <<<
+    const handleCaptureChart = async () => {
+      const chartElement = document.getElementById('efficiency-chart-card');
+      if (!chartElement) {
+        setResponse(prev => prev + `${String.fromCharCode(10)}Error: Chart element not found.`);
+        return;
+      }
+  
+      setResponse(prev => prev + `${String.fromCharCode(10)}Capturing chart...`);
+      try {
+          const canvas = await html2canvas(chartElement);
+          const imageBase64 = canvas.toDataURL('image/png');
+  
+          // Create a temporary download link for user convenience
+          const link = document.createElement('a');
+          const filename = `${converterModel || 'converter'}-${procedureText.replace(/[^a-zA-Z0-9]/g, '_') || 'procedure'}.png`;
+          link.download = filename;
+          link.href = imageBase64;
+          link.click();
+          setResponse(prev => prev + `${String.fromCharCode(10)}Chart captured and download initiated. Preparing email form...`);
+  
+          // Call handleShowUserInfoForm with the captured image to display the email form
+          if (handleShowUserInfoForm) {
+            handleShowUserInfoForm(imageBase64); // Pass the base64 image to the function
+          } else {
+            setResponse(prev => prev + `${String.fromCharCode(10)}Error: Email form handler not available.`);
+          }
+  
+      } catch (error: any) {
+           setResponse(prev => prev + `${String.fromCharCode(10)}Error capturing chart: ${error.message}`);
+      }
+    };
+
+    // >>> End of handleCaptureChart function block <<<
+
 
   const handleAddCommand = () => {
     if (!command.trim()) {
@@ -761,56 +821,61 @@ export default function Home() {
         </Button>
 
         {chartData.length > 0 && Object.keys(chartConfig).length > 0 && (
-          <Card className="w-full mt-4 shadow-sm">
+          <Card id="efficiency-chart-card" className="w-full mt-4 shadow-sm"> {/* Added id="efficiency-chart-card" */}
+            {/* >>> Paste this div with the Button here (before <CardHeader>) <<< */}
+            <div className="flex justify-end p-2">
+              <Button onClick={handleCaptureChart} size="sm">Capture Plot</Button>
+            </div>
+            {/* >>> End of div with Button <<< */}
             <CardHeader>
               <CardTitle>Efficiency vs. Output Power</CardTitle>
               <CardDescription>Efficiency curves at different input voltages (Eff = Po/Pi)</CardDescription>
             </CardHeader>
             <CardContent>
-              <ChartContainer config={chartConfig} className="min-h-[300px] w-full"> 
+              <ChartContainer config={chartConfig} className="min-h-[300px] w-full">
                 <LineChart data={chartData} margin={{ top: 5, right: 100, left: 0, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="po" 
-                    type="number" 
+                  <XAxis
+                    dataKey="po"
+                    type="number"
                     name="Output Power (Po)"
                     label={{ value: "Output Power (Po) (W)", position: "insideBottom", offset: -15 }}
                     domain={['auto', 'auto']}
                     tickFormatter={(value) => value.toFixed(1)}
                     allowDuplicatedCategory={false}
                   />
-                  <YAxis 
+                  <YAxis
                     name="Efficiency (Eff)"
                     label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }}
-                    domain={[0, 'auto']} 
+                    domain={[0, 'auto']}
                     tickFormatter={(value) => value.toFixed(3)}
                   />
-                  <ChartTooltip 
-                    cursor={true} 
-                    content={<ChartTooltipContent 
+                  <ChartTooltip
+                    cursor={true}
+                    content={<ChartTooltipContent
                       labelFormatter={(value, payload) => `Po: ${Number(payload?.[0]?.payload?.po || value).toFixed(2)} W`}
                       formatter={(value, name, props) => {
                         const label = chartConfig[name as string]?.label || name;
                         return [(value as number).toFixed(3), label];
                       }}
-                    />} 
+                    />}
                   />
                   {Object.keys(chartConfig).map((key) => (
-                    <Line 
-                      key={key} 
-                      type="monotone" 
-                      dataKey={key} 
-                      stroke={chartConfig[key]?.color} 
-                      strokeWidth={2} 
-                      dot={false} 
-                      name={chartConfig[key]?.label} 
-                      connectNulls 
+                    <Line
+                      key={key}
+                      type="monotone"
+                      dataKey={key}
+                      stroke={chartConfig[key]?.color}
+                      strokeWidth={2}
+                      dot={false}
+                      name={chartConfig[key]?.label}
+                      connectNulls
                     />
                   ))}
-                  <ChartLegend 
-                    content={<ChartLegendContent />} 
-                    layout="vertical" 
-                    verticalAlign="middle" 
+                  <ChartLegend
+                    content={<ChartLegendContent />}
+                    layout="vertical"
+                    verticalAlign="middle"
                     align="right"
                   />
                 </LineChart>
@@ -819,6 +884,41 @@ export default function Home() {
           </Card>
         )}
         
+          {/* >>> Paste this block here (starting on Line 886) <<< */}
+          {showUserInfoForm && (
+          <div className="mt-8 p-6 border rounded-md shadow-sm">
+            <h2 className="text-xl font-semibold mb-4">Enter Your Information</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="name">Name <span className="text-red-500">*</span></Label>
+                <Input id="name" placeholder="Your Name" value={userName} onChange={(e) => setUserName(e.target.value)} required />
+              </div>
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="email">Email <span className="text-red-500">*</span></Label>
+                <Input id="email" type="email" placeholder="Your Email" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} required />
+              </div>
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="company">Company</Label>
+                <Input id="company" placeholder="Your Company" value={userCompany} onChange={(e) => setUserCompany(e.target.value)} />
+              </div>
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="industry">Industry</Label>
+                <Input id="industry" placeholder="Your Industry" value={userIndustry} onChange={(e) => setUserIndustry(e.target.value)} />
+              </div>
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input id="phone" type="tel" placeholder="Your Phone Number" value={userPhone} onChange={(e) => setUserPhone(e.target.value)} />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <Button onClick={handleSendEmail} disabled={isSendingEmail || !userName || !userEmail}>
+                {isSendingEmail ? 'Sending...' : 'Send Email'}
+              </Button>
+            </div>
+          </div>
+        )}
+        {/* >>> End of block to paste <<< */}
+  
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Button onClick={handleActivatePort1} variant="outline" className="w-full" disabled={isPort1Busy || isBusy}>
             {isPort1Busy ? (isConnected1 ? 'Disconnecting COM3...' : 'Connecting COM3...') : (isConnected1 ? 'Deactivate COM3 Port' : 'Activate COM3 Port')}

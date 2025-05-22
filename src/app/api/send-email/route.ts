@@ -1,19 +1,24 @@
-
+// src/app/api/send-email/route.ts
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 
+// MODIFICATION 1: Update EmailPayload interface
 interface EmailPayload {
   to: string;
   cc?: string;
   subject: string;
   textBody: string;
+  plotPictureBase64?: string; // Added for the image
+  userName?: string;          // Added for dynamic filename
+  deviceModel?: string;       // Added for dynamic filename
 }
 
 export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json()) as EmailPayload;
-    const { to, cc, subject, textBody } = payload;
+    // MODIFICATION 2: Destructure the new fields from the payload
+    const { to, cc, subject, textBody, plotPictureBase64, userName, deviceModel } = payload;
 
     if (!to || !subject || !textBody) {
       return NextResponse.json({ message: 'Missing required email fields (to, subject, textBody)' }, { status: 400 });
@@ -42,7 +47,11 @@ export async function POST(request: NextRequest) {
       console.log('To:', to);
       if (cc) console.log('CC:', cc);
       console.log('Subject:', subject);
-      console.log('Body:\n', textBody);
+      console.log('Body:' + String.fromCharCode(10), textBody); // Corrected this line to use String.fromCharCode(10)
+      // MODIFICATION 3 (Simulation Part): Log if plotPictureBase64 is received
+      if (plotPictureBase64) {
+        console.log('Plot Picture Data: Received (simulated attachment)');
+      }
       console.log('--- Email Sent (Simulated - Gmail Credentials Missing) ---');
       return NextResponse.json({ message: 'Email processed (simulated - Gmail credentials not configured on server)' }, { status: 200 });
     }
@@ -55,14 +64,26 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // MODIFICATION 4: Update mailOptions to include attachments
     const mailOptions: nodemailer.SendMailOptions = {
       from: `"DC Converter Tester" <${gmailUser}>`, // Sender address (must be your Gmail address)
       to: to,
       cc: cc,
       subject: subject,
       text: textBody,
-      // html: "<b>Hello world?</b>", // You can also send an HTML body if needed
+      // html: `<b>Hello world?</b>`, // You can also send an HTML body if needed
+      attachments: [], // Initialize attachments array
     };
+
+    // Conditionally add the attachment if plotPictureBase64 exists
+    if (plotPictureBase64) {
+      mailOptions.attachments!.push({ // The '!' asserts attachments is not undefined
+        filename: `${deviceModel || 'plot'}-${userName || 'user'}.png`, // Dynamic filename
+        content: plotPictureBase64.split('base64,')[1], // Remove the data URI prefix
+        encoding: 'base64',
+        contentType: 'image/png',
+      });
+    }
 
     try {
       const info = await transporter.sendMail(mailOptions);

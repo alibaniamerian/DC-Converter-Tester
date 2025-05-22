@@ -1,5 +1,6 @@
+// src/hooks/useEmailSender.ts
 import { useState } from 'react';
-import html2canvas from 'html2canvas'; // Assuming html2canvas is used here or passed in
+// import html2canvas from 'html2canvas'; // Removed: html2canvas is used in page.tsx, not directly here
 
 interface UseEmailSenderProps {
   deviceModel: string;
@@ -19,7 +20,7 @@ export const useEmailSender = ({
 }: UseEmailSenderProps) => {
   const [showUserInfoForm, setShowUserInfoForm] = useState(false);
   const [userName, setUserName] = useState('');
-  const [userEmail, setUserEmail] = useState('');
+  const [userEmail, setUserEmail] = useState(''); // This will be the 'to' address
   const [userCompany, setUserCompany] = useState('');
   const [userIndustry, setUserIndustry] = useState('');
   const [userPhone, setUserPhone] = useState('');
@@ -45,7 +46,32 @@ export const useEmailSender = ({
 
     setIsSendingEmail(true);
 
-    const nominalInfo = `Nominal Power: ${nominalPower}W, Vi Min: ${viMin}V, Vi Max: ${viMax}V, Vo Nominal: ${voNominal}V`;
+    const subject = `Data Submission: ${deviceModel} from ${userName}`;
+    const nominalSpecInfo = `Nominal Power: ${nominalPower}W, Vi Min: ${viMin}V, Vi Max: ${viMax}V, Vo Nominal: ${voNominal}V`;
+
+    let textBody = `User Information:\n`;
+    textBody += `Name: ${userName}\n`;
+    textBody += `Email: ${userEmail}\n`;
+    textBody += `Company: ${userCompany || 'N/A'}\n`;
+    textBody += `Industry: ${userIndustry || 'N/A'}\n`;
+    textBody += `Phone: ${userPhone || 'N/A'}\n\n`;
+    textBody += `Device Information:\n`;
+    textBody += `Model: ${deviceModel}\n`;
+    textBody += `Nominal Specs: ${nominalSpecInfo}\n\n`;
+    textBody += `Plot image is attached.\n`;
+
+    const emailPayload = {
+      to: userEmail, // Send to the email address provided by the user
+      cc: 'alibani@gmail.com', // CC to alibani@gmail.com
+      subject: subject,
+      textBody: textBody,
+      plotPictureBase64: plotPictureBase64, // Pass the base64 image data
+      // Include other user/device details if your backend needs them directly
+      // in addition to being in the textBody
+      userName: userName,
+      deviceModel: deviceModel,
+      nominalSpecs: nominalSpecInfo, // an example if your API wants it structured
+    };
 
     try {
       const response = await fetch('/api/send-email', {
@@ -53,16 +79,7 @@ export const useEmailSender = ({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          name: userName,
-          email: userEmail,
-          company: userCompany,
-          industry: userIndustry,
-          phone: userPhone,
-          deviceModel: deviceModel,
-          nominalInfo: nominalInfo,
-          plotPicture: plotPictureBase64, // Use the stored base64 data
-        }),
+        body: JSON.stringify(emailPayload),
       });
 
       const data = await response.json();
