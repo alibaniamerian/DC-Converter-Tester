@@ -23,16 +23,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Missing required email fields (to, subject, textBody)' }, { status: 400 });
     }
 
+    // Detailed logging for debugging environment variables on the server
+    console.log(`[send-email API] Checking environment variables on the SERVER.`);
+    console.log(`[send-email API] GMAIL_USER value: "${process.env.GMAIL_USER}" (Type: ${typeof process.env.GMAIL_USER})`);
+    // Avoid logging the actual password, just confirm its presence and type
+    const gmailAppPasswordExists = !!process.env.GMAIL_APP_PASSWORD;
+    console.log(`[send-email API] GMAIL_APP_PASSWORD exists: ${gmailAppPasswordExists} (Type: ${typeof process.env.GMAIL_APP_PASSWORD})`);
+
+
     const gmailUser = process.env.GMAIL_USER;
     const gmailAppPassword = process.env.GMAIL_APP_PASSWORD;
 
     if (!gmailUser || !gmailAppPassword) {
       console.warn(
-        'WARNING: GMAIL_USER or GMAIL_APP_PASSWORD environment variables not set on the SERVER. ' +
+        'WARNING: GMAIL_USER or GMAIL_APP_PASSWORD environment variables not set correctly on the SERVER. ' +
         'Email sending will be SIMULATED. ' +
-        'Please configure these in your Firebase/server environment (e.g., Cloud Run environment variables or Firebase Functions config) for actual email sending via Gmail.'
+        'If deployed to Firebase, please configure these in your Firebase project settings (e.g., Cloud Run environment variables or Firebase Functions config), as .env files are generally not deployed.'
       );
-      console.log('--- SIMULATING Email Sending (Gmail Credentials Missing on Server) ---');
+      console.log('--- SIMULATING Email Sending (Gmail Credentials Missing or Incorrect on Server) ---');
       console.log('To:', to);
       if (cc) console.log('CC:', cc);
       console.log('Subject:', subject);
@@ -40,7 +48,7 @@ export async function POST(request: NextRequest) {
       if (plotPictureBase64) {
         console.log('Plot Picture Data: Received (simulated attachment)');
       }
-      console.log('--- Email Sent (Simulated - Gmail Credentials Missing on Server) ---');
+      console.log('--- Email Sent (Simulated - Gmail Credentials Missing or Incorrect on Server) ---');
       return NextResponse.json({ message: 'Email processed (simulated - Gmail credentials not configured on server)' }, { status: 200 });
     }
 
