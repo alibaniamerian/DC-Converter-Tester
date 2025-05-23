@@ -1,3 +1,4 @@
+
 // src/app/api/send-email/route.ts
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
@@ -8,9 +9,9 @@ interface EmailPayload {
   cc?: string;
   subject: string;
   textBody: string;
-  plotPictureBase64?: string; 
-  userName?: string;          
-  deviceModel?: string;       
+  plotPictureBase64?: string;
+  userName?: string;
+  deviceModel?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -27,9 +28,9 @@ export async function POST(request: NextRequest) {
 
     if (!gmailUser || !gmailAppPassword) {
       console.warn(
-        'WARNING: GMAIL_USER or GMAIL_APP_PASSWORD environment variables not set. ' +
+        'WARNING: GMAIL_USER or GMAIL_APP_PASSWORD environment variables not set on the SERVER. ' +
         'Email sending will be SIMULATED. ' +
-        'Please set them up in your .env.local file (and ensure it is in .gitignore) for actual email sending via Gmail.'
+        'Please configure these in your Firebase/server environment (e.g., Cloud Run environment variables or Firebase Functions config) for actual email sending via Gmail.'
       );
       console.log('--- SIMULATING Email Sending (Gmail Credentials Missing on Server) ---');
       console.log('To:', to);
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
       if (plotPictureBase64) {
         console.log('Plot Picture Data: Received (simulated attachment)');
       }
-      console.log('--- Email Sent (Simulated - Gmail Credentials Missing) ---');
+      console.log('--- Email Sent (Simulated - Gmail Credentials Missing on Server) ---');
       return NextResponse.json({ message: 'Email processed (simulated - Gmail credentials not configured on server)' }, { status: 200 });
     }
 
@@ -50,23 +51,23 @@ export async function POST(request: NextRequest) {
       service: 'gmail',
       auth: {
         user: gmailUser,
-        pass: gmailAppPassword, 
+        pass: gmailAppPassword,
       },
     });
 
     const mailOptions: nodemailer.SendMailOptions = {
-      from: `"DC Converter Tester" <${gmailUser}>`, 
+      from: `"DC Converter Tester" <${gmailUser}>`,
       to: to,
       cc: cc,
       subject: subject,
       text: textBody,
-      attachments: [], 
+      attachments: [],
     };
 
     if (plotPictureBase64) {
-      mailOptions.attachments!.push({ 
+      mailOptions.attachments!.push({
         filename: `${deviceModel || 'plot'}-${userName || 'user'}.png`,
-        content: plotPictureBase64.split('base64,')[1], 
+        content: plotPictureBase64.split('base64,')[1],
         encoding: 'base64',
         contentType: 'image/png',
       });
@@ -81,14 +82,14 @@ export async function POST(request: NextRequest) {
       let detailedErrorMessage = 'Failed to send email via Gmail.';
       // @ts-ignore
       if (emailError?.code === 'EAUTH' || emailError?.responseCode === 535 || (emailError?.response?.includes && emailError.response.includes('Username and Password not accepted'))) {
-        detailedErrorMessage = 'Gmail authentication failed. Please check your GMAIL_USER and GMAIL_APP_PASSWORD environment variables. Ensure you are using an App Password if 2-Step Verification is enabled for your Gmail account. Also, verify that the App Password is correct and has not been revoked.';
+        detailedErrorMessage = 'Gmail authentication failed. Please check your GMAIL_USER and GMAIL_APP_PASSWORD environment variables on the server. Ensure you are using an App Password if 2-Step Verification is enabled for your Gmail account. Also, verify that the App Password is correct and has not been revoked.';
       // @ts-ignore
       } else if (emailError?.code === 'ECONNECTION' || emailError?.code === 'ETIMEDOUT') {
-        detailedErrorMessage = 'Failed to connect to Gmail SMTP server. Check your internet connection.';
+        detailedErrorMessage = 'Failed to connect to Gmail SMTP server. Check your internet connection and server outbound network rules.';
       } else if (emailError instanceof Error) {
         detailedErrorMessage += ` Details: ${emailError.message}`;
       }
-      
+
       return NextResponse.json({ message: detailedErrorMessage, errorDetails: (emailError instanceof Error ? emailError.message : String(emailError)) }, { status: 500 });
     }
 
