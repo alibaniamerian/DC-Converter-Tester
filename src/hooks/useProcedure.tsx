@@ -10,6 +10,7 @@ interface QueuedCommand {
 
 interface ProcedureGenerationResult {
   commands: QueuedCommand[];
+  procedureName?: string; // Added to identify the procedure
   error?: string;
 }
 
@@ -37,7 +38,7 @@ export function useProcedure(
       let vs1: number, vs2: number;
       if (vs1Str === '' && viMinDefault && viMinDefault.trim() !== '') vs1 = parseFloat(viMinDefault); else vs1 = parseFloat(vs1Str);
       if (vs2Str === '' && viMaxDefault && viMaxDefault.trim() !== '') vs2 = parseFloat(viMaxDefault); else vs2 = parseFloat(vs2Str);
-      if (isNaN(vs1) || isNaN(vs2)) return { commands: [], error: 'SwVin Error: Vs1 or Vs2 is invalid or defaults not set.' };
+      if (isNaN(vs1) || isNaN(vs2)) return { commands: [], procedureName: 'SwVin', error: 'SwVin Error: Vs1 or Vs2 is invalid or defaults not set.' };
       let nsw = nswStr === '' ? 2 : parseInt(nswStr, 10);
       if (isNaN(nsw) || nsw < 2) nsw = 2;
       if (nsw > 20) nsw = 20;
@@ -46,12 +47,12 @@ export function useProcedure(
         const t = (nsw === 1) ? 0 : i / (nsw - 1);
         const vx = vs1 + t * (vs2 - vs1);
         generatedCommands.push({ text: `VOLT ${vx.toFixed(2)}`, targetPort: 'COM3' });
-        generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM3' });
-        generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM6' });
-        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3', meta: { calculatesPi: true } });
-        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM6', meta: { calculatesPo: true, calculatesEff: true } });
+        generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM3' }); // Vin
+        generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM6' }); // Vo
+        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3', meta: { calculatesPi: true } }); // Iin
+        generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM6', meta: { calculatesPo: true, calculatesEff: true } }); // Io, Po, Eff
       }
-      return { commands: generatedCommands };
+      return { commands: generatedCommands, procedureName: 'SwVin' };
     } else if (swIoMatch) {
       const is1Str = swIoMatch[1].trim();
       const is2Str = swIoMatch[2].trim();
@@ -61,10 +62,10 @@ export function useProcedure(
       if (is2Str === '') {
         const nomP = parseFloat(nominalPowerDefault || '');
         const voN = parseFloat(voNominalDefault || '');
-        if (isNaN(nomP) || isNaN(voN) || voN === 0) return { commands: [], error: 'SwIo Error: Cannot calc default Is2. Nominal Power/Vo Nominal invalid or Vo is zero.' };
+        if (isNaN(nomP) || isNaN(voN) || voN === 0) return { commands: [], procedureName: 'SwIo', error: 'SwIo Error: Cannot calc default Is2. Nominal Power/Vo Nominal invalid or Vo is zero.' };
         is2 = nomP / voN;
       } else is2 = parseFloat(is2Str);
-      if (isNaN(is1) || isNaN(is2)) return { commands: [], error: 'SwIo Error: Is1 or Is2 invalid.' };
+      if (isNaN(is1) || isNaN(is2)) return { commands: [], procedureName: 'SwIo', error: 'SwIo Error: Is1 or Is2 invalid.' };
       let nsw = nswStr === '' ? 2 : parseInt(nswStr, 10);
       if (isNaN(nsw) || nsw < 2) nsw = 2;
       if (nsw > 20) nsw = 20;
@@ -78,7 +79,7 @@ export function useProcedure(
         generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3', meta: { calculatesPi: true } });
         generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM6', meta: { calculatesPo: true, calculatesEff: true } });
       }
-      return { commands: generatedCommands };
+      return { commands: generatedCommands, procedureName: 'SwIo' };
     } else if (swPoMatch) {
       const ps1Str = swPoMatch[1].trim();
       const ps2Str = swPoMatch[2].trim();
@@ -88,14 +89,14 @@ export function useProcedure(
       if (ps1Str === '') ps1 = 0; else ps1 = parseFloat(ps1Str);
       if (ps2Str === '') {
         const nomP = parseFloat(nominalPowerDefault || '');
-        if (isNaN(nomP)) return { commands: [], error: 'SwPo Error: Cannot calc default Ps2. Nominal Power invalid or not set.' };
+        if (isNaN(nomP)) return { commands: [], procedureName: 'SwPo', error: 'SwPo Error: Cannot calc default Ps2. Nominal Power invalid or not set.' };
         ps2 = nomP;
       } else ps2 = parseFloat(ps2Str);
 
       const voN = parseFloat(voNominalDefault || '');
-      if (isNaN(voN) || voN === 0) return { commands: [], error: 'SwPo Error: Vo (Nominal) is invalid, zero, or not set. Required for Is calculation.' };
+      if (isNaN(voN) || voN === 0) return { commands: [], procedureName: 'SwPo', error: 'SwPo Error: Vo (Nominal) is invalid, zero, or not set. Required for Is calculation.' };
 
-      if (isNaN(ps1) || isNaN(ps2)) return { commands: [], error: 'SwPo Error: Ps1 or Ps2 invalid.' };
+      if (isNaN(ps1) || isNaN(ps2)) return { commands: [], procedureName: 'SwPo', error: 'SwPo Error: Ps1 or Ps2 invalid.' };
       
       const is1 = ps1 / voN;
       const is2 = ps2 / voN;
@@ -114,7 +115,7 @@ export function useProcedure(
         generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3', meta: { calculatesPi: true } });
         generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM6', meta: { calculatesPo: true, calculatesEff: true } });
       }
-      return { commands: generatedCommands };
+      return { commands: generatedCommands, procedureName: 'SwPo' };
     } else if (swPoViMatch) {
       const ps1Str = swPoViMatch[1].trim();
       const ps2Str = swPoViMatch[2].trim();
@@ -127,13 +128,13 @@ export function useProcedure(
       if (ps1Str === '') ps1 = 0; else ps1 = parseFloat(ps1Str);
       if (ps2Str === '') {
         const nomP = parseFloat(nominalPowerDefault || '');
-        if (isNaN(nomP)) return { commands: [], error: 'SwPoVi Error: Cannot calc default Ps2. Nominal Power invalid or not set.' };
+        if (isNaN(nomP)) return { commands: [], procedureName: 'SwPoVi', error: 'SwPoVi Error: Cannot calc default Ps2. Nominal Power invalid or not set.' };
         ps2 = nomP;
       } else ps2 = parseFloat(ps2Str);
 
       const voN = parseFloat(voNominalDefault || '');
-      if (isNaN(voN) || voN === 0) return { commands: [], error: 'SwPoVi Error: Vo (Nominal) is invalid, zero, or not set. Required for Is calculation.' };
-      if (isNaN(ps1) || isNaN(ps2)) return { commands: [], error: 'SwPoVi Error: Ps1 or Ps2 invalid.' };
+      if (isNaN(voN) || voN === 0) return { commands: [], procedureName: 'SwPoVi', error: 'SwPoVi Error: Vo (Nominal) is invalid, zero, or not set. Required for Is calculation.' };
+      if (isNaN(ps1) || isNaN(ps2)) return { commands: [], procedureName: 'SwPoVi', error: 'SwPoVi Error: Ps1 or Ps2 invalid.' };
 
       let nsw = nswStr === '' ? 2 : parseInt(nswStr, 10);
       if (isNaN(nsw) || nsw < 2) nsw = 2;
@@ -145,7 +146,7 @@ export function useProcedure(
       let vs1: number, vs2: number;
       if (vs1Str === '' && viMinDefault && viMinDefault.trim() !== '') vs1 = parseFloat(viMinDefault); else vs1 = parseFloat(vs1Str);
       if (vs2Str === '' && viMaxDefault && viMaxDefault.trim() !== '') vs2 = parseFloat(viMaxDefault); else vs2 = parseFloat(vs2Str);
-      if (isNaN(vs1) || isNaN(vs2)) return { commands: [], error: 'SwPoVi Error: Vs1 or Vs2 for Vi sweep is invalid or defaults not set.' };
+      if (isNaN(vs1) || isNaN(vs2)) return { commands: [], procedureName: 'SwPoVi', error: 'SwPoVi Error: Vs1 or Vs2 for Vi sweep is invalid or defaults not set.' };
 
       let nswv = nswvStr === '' ? 2 : parseInt(nswvStr, 10);
       if (isNaN(nswv) || nswv < 2) nswv = 2;
@@ -167,38 +168,38 @@ export function useProcedure(
           generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM6', meta: { calculatesPo: true, calculatesEff: true } });
         }
       }
-      return { commands: generatedCommands };
+      return { commands: generatedCommands, procedureName: 'SwPoVi' };
 
     } else if (poutMatch) {
       const isStr = poutMatch[1].trim();
       const generatedCommands: QueuedCommand[] = [];
       if (isStr !== '') {
         const isValue = parseFloat(isStr);
-        if (isNaN(isValue)) return { commands: [], error: 'Pout Error: Is parameter must be a valid number if provided.' };
+        if (isNaN(isValue)) return { commands: [], procedureName: 'Pout', error: 'Pout Error: Is parameter must be a valid number if provided.' };
         generatedCommands.push({ text: `CURR ${isValue.toFixed(2)}`, targetPort: 'COM6' });
       }
       generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM6' });
       generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM6', meta: { calculatesPo: true } });
-      return { commands: generatedCommands };
+      return { commands: generatedCommands, procedureName: 'Pout' };
     } else if (pinMatch) {
       const vsStr = pinMatch[1].trim();
       const generatedCommands: QueuedCommand[] = [];
       if (vsStr !== '') {
         const vsValue = parseFloat(vsStr);
-        if (isNaN(vsValue)) return { commands: [], error: 'Pin Error: Vs parameter must be a valid number if provided.' };
+        if (isNaN(vsValue)) return { commands: [], procedureName: 'Pin', error: 'Pin Error: Vs parameter must be a valid number if provided.' };
         const viMin = parseFloat(viMinDefault || '');
         const viMax = parseFloat(viMaxDefault || '');
         if (isNaN(viMin) || isNaN(viMax)) {
-          return { commands: [], error: 'Pin Error: Vi(min) or Vi(max) not set or invalid in User Parameters. Required for Vs validation.' };
+          return { commands: [], procedureName: 'Pin', error: 'Pin Error: Vi(min) or Vi(max) not set or invalid in User Parameters. Required for Vs validation.' };
         }
         if (vsValue < viMin || vsValue > viMax) {
-          return { commands: [], error: `Pin Error: Vs (${vsValue}) out of range [${viMin}, ${viMax}].` };
+          return { commands: [], procedureName: 'Pin', error: `Pin Error: Vs (${vsValue}) out of range [${viMin}, ${viMax}].` };
         }
         generatedCommands.push({ text: `VOLT ${vsValue.toFixed(2)}`, targetPort: 'COM3' });
       }
       generatedCommands.push({ text: 'MEAS:VOLT?', targetPort: 'COM3' });
       generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3', meta: { calculatesPi: true } });
-      return { commands: generatedCommands };
+      return { commands: generatedCommands, procedureName: 'Pin' };
     } else if (procText) {
       return { 
         commands: [], 

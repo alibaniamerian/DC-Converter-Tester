@@ -1,4 +1,3 @@
-
 "use client";
 /// <reference lib="dom" />
 
@@ -218,7 +217,6 @@ export default function Home() {
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]); // Updated type
   const [chartConfig, setChartConfig] = useState<ChartConfig>({});
   const [currentProcedureName, setCurrentProcedureName] = useState<string | undefined>(undefined); // Added state
-  const [isChartReady, setIsChartReady] = useState(false); // Added state
   const responseLogRef = useRef<HTMLTextAreaElement>(null);
 
 
@@ -371,7 +369,6 @@ export default function Home() {
     setCommands([]);
     setCommandResponses([]);
     setCurrentProcedureName(undefined); // Reset procedure name
-    setIsChartReady(false); // Reset chart ready state
     setResponse(prev => prev + `${String.fromCharCode(10)}Command queue cleared.`);
   };
 
@@ -404,7 +401,6 @@ export default function Home() {
 
 
     setIsBusy(true);
-    setIsChartReady(false); // Set chart not ready before processing
     setChartData([]);
     setChartConfig({});
     let tempUpdatedResponses = [...commandResponses];
@@ -508,7 +504,7 @@ export default function Home() {
               case 'MEAS:CURR?':
                 if (parts.length > 0) tempUpdatedResponses[i * 8 + 5] = parts[0];
                 let poVal: number | undefined = undefined;
-                // let effVal: number | undefined = undefined; // effVal is not directly used for assignment later
+                let effVal: number | undefined = undefined;
                 const currentIo = parseFloat(parts[0]);
 
                 if (cmdInfo.meta?.calculatesPo) {
@@ -516,7 +512,6 @@ export default function Home() {
                    if (i > 0 && commands[i-1]?.text === 'MEAS:VOLT?' && commands[i-1]?.targetPort === 'COM6') {
                      prevVoStr = tempUpdatedResponses[(i-1) * 8 + 4];
                    } else {
-                     // Search backwards for the most recent Vo measurement on COM6 if not immediately preceding
                      for (let k = i - 1; k >= 0; k--) {
                        if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM6') {
                          prevVoStr = tempUpdatedResponses[k * 8 + 4];
@@ -533,24 +528,9 @@ export default function Home() {
 
                 if (cmdInfo.meta?.calculatesEff && lastMeasuredVi !== undefined) {
                   let piToUseForEff: number | undefined;
-                  // Search backwards for the most recent Pi calculation on COM3 if not immediately preceding
                   if (i > 0 && commands[i-1]?.text === 'MEAS:CURR?' && commands[i-1]?.targetPort === 'COM3' && commands[i-1]?.meta?.calculatesPi) {
                     piToUseForEff = parseFloat(tempUpdatedResponses[(i-1) * 8 + 3]);
-                  } else {
-                    for (let k = i - 1; k >=0; k--) {
-                        if (commands[k].text === 'MEAS:CURR?' && commands[k].targetPort === 'COM3' && commands[k].meta?.calculatesPi) {
-                            piToUseForEff = parseFloat(tempUpdatedResponses[k*8+3]);
-                            break;
-                        } else if (commands[k].text === 'MEAS:POW?' && commands[k].targetPort === 'COM3') {
-                            piToUseForEff = parseFloat(tempUpdatedResponses[k*8+3]);
-                            break;
-                        } else if (commands[k].text === 'MEAS:ALL?' && commands[k].targetPort === 'COM3' && tempUpdatedResponses[k*8+3]) {
-                            piToUseForEff = parseFloat(tempUpdatedResponses[k*8+3]);
-                            break;
-                        }
-                    }
                   }
-
 
                   const currentEffForStep = (poVal !== undefined && piToUseForEff !== undefined && piToUseForEff !== 0)
                     ? parseFloat((poVal / piToUseForEff).toFixed(3))
@@ -563,30 +543,42 @@ export default function Home() {
 
                   // Data collection specific to currentProcedureName
                   if (currentProcedureName === 'SwVin') {
-                    let vinForThisPoint: number | undefined = lastMeasuredVi;
-                    let voForThisPoint: number | undefined = lastMeasuredVo;
+                    // For SwVin, Vin is the primary independent variable.
+                    // We need to find the Vin that corresponds to this Eff and Vo measurement.
+                    // Assumes `MEAS:VOLT?` on COM3 (Vin) is 2 commands prior to `MEAS:CURR?` on COM6 (Eff calc)
+                    // Assumes `MEAS:VOLT?` on COM6 (Vo) is 1 command prior.
+                    let vinForThisPoint: number | undefined = lastMeasuredVi; // Default to last overall measured Vi
+                    let voForThisPoint: number | undefined = lastMeasuredVo; // Default to last overall measured Vo
+
+                    // Attempt to get more precise Vin from the current group of commands
+                    // Structure: VOLT(COM3), MEAS:VOLT(COM3), MEAS:VOLT(COM6), MEAS:CURR(COM3), MEAS:CURR(COM6)
+                    // If current cmd is MEAS:CURR(COM6) at index `i`:
+                    // Vin is from MEAS:VOLT(COM3) at index `i-3` in `commands` list, response at `(i-3)*8+1`
+                    // Vo  is from MEAS:VOLT(COM6) at index `i-2` in `commands` list, response at `(i-2)*8+4`
+                    // Pi  is from MEAS:CURR(COM3) at index `i-1` in `commands` list, response at `(i-1)*8+3`
 
                     if (commands[i-3]?.text === 'MEAS:VOLT?' && commands[i-3]?.targetPort === 'COM3') {
                         const vinStr = tempUpdatedResponses[(i-3) * 8 + 1];
-                        if (vinStr) vinForThisPoint = parseFloat(vinStr); else vinForThisPoint = undefined; // Ensure it becomes undefined if empty
+                        if (vinStr) vinForThisPoint = parseFloat(vinStr);
                     }
                     if (commands[i-2]?.text === 'MEAS:VOLT?' && commands[i-2]?.targetPort === 'COM6') {
                         const voStr = tempUpdatedResponses[(i-2) * 8 + 4];
-                        if (voStr) voForThisPoint = parseFloat(voStr); else voForThisPoint = undefined; // Ensure it becomes undefined if empty
+                        if (voStr) voForThisPoint = parseFloat(voStr);
                     }
-                    
+                    // Pi for Eff was already calculated as piToUseForEff from tempUpdatedResponses[(i-1) * 8 + 3]
+
                     if (vinForThisPoint !== undefined && !isNaN(vinForThisPoint) && currentEffForStep !== undefined) {
                         collectedSwVinData.push({
                             vin: vinForThisPoint,
-                            vo: voForThisPoint, 
+                            vo: voForThisPoint, // voForThisPoint might be undefined if not measured
                             eff: currentEffForStep,
                         });
                     }
-                  } else { 
+                  } else { // Default to SwPo, SwIo, SwPoVi style data collection (using Po as key)
                     if (poVal !== undefined && currentEffForStep !== undefined && lastMeasuredVi !== undefined) {
                         const viKey = `eff_${lastMeasuredVi.toFixed(1)}`;
-                        uniqueViKeysForSwPo.add(viKey); 
-                        if (!collectedSwPoData[poVal]) { 
+                        uniqueViKeysForSwPo.add(viKey); // Use the renamed Set
+                        if (!collectedSwPoData[poVal]) { // Use the renamed collection
                            collectedSwPoData[poVal] = {};
                         }
                         collectedSwPoData[poVal][viKey] = currentEffForStep;
@@ -614,40 +606,41 @@ export default function Home() {
     }
 
     // Transform and set chart data based on procedure
-    const newChartConfigLocal: ChartConfig = {}; // Use a local var to build config
-    let finalChartData: ChartDataPoint[] = []; 
+    const newChartConfig: ChartConfig = {};
+    let finalChartData: ChartDataPoint[] = []; // Use the new ChartDataPoint type
 
     if (currentProcedureName === 'SwVin') {
-      collectedSwVinData.sort((a, b) => a.vin - b.vin); 
+      collectedSwVinData.sort((a, b) => a.vin - b.vin); // Sort by Vin
       finalChartData = collectedSwVinData.map(dp => ({
-        x: dp.vin, 
+        x: dp.vin, // Vin is the x-axis
         efficiency: dp.eff,
         vo: dp.vo,
       }));
 
+      // Configure lines for SwVin plot
       if (finalChartData.some(d => d.efficiency !== undefined)) {
-        newChartConfigLocal['efficiency'] = {
+        newChartConfig['efficiency'] = {
           label: 'Efficiency',
           color: lineColors[0],
         };
       }
       if (finalChartData.some(d => d.vo !== undefined)) {
-        newChartConfigLocal['vo'] = {
+        newChartConfig['vo'] = {
           label: 'Vo (V)',
           color: lineColors[1],
         };
       }
-    } else { 
-      finalChartData = Object.entries(collectedSwPoData) 
+    } else { // Default to SwPo, SwIo, SwPoVi behavior
+      finalChartData = Object.entries(collectedSwPoData) // Use collectedSwPoData
         .map(([poStr, viEffMap]) => ({
-          x: parseFloat(poStr), 
+          x: parseFloat(poStr), // Po is the x-axis
           ...viEffMap,
         }))
-        .sort((a, b) => a.x - b.x); 
+        .sort((a, b) => a.x - b.x); // Sort by x (which is Po here)
 
       Array.from(uniqueViKeysForSwPo).sort((a, b) => parseFloat(a.split('_')[1]) - parseFloat(b.split('_')[1])).forEach((viKey, index) => {
         const viValue = viKey.split('_')[1];
-        newChartConfigLocal[viKey] = {
+        newChartConfig[viKey] = {
           label: `Eff @ ${viValue}V`,
           color: lineColors[index % lineColors.length],
         };
@@ -655,8 +648,7 @@ export default function Home() {
     }
 
     setChartData(finalChartData);
-    setChartConfig(newChartConfigLocal); // Set the state with the locally built config
-    setIsChartReady(true); 
+    setChartConfig(newChartConfig);
     setIsBusy(false);
   };
 
@@ -709,371 +701,366 @@ export default function Home() {
         nominalPower,
         viMin,
         viMax,
-        voNominal,};
-        setProcedureText(selectedProc.getTemplate(currentParams));
-        setSelectedProcedureDescription(selectedProc.description); // Update description state
-      } else {
-        setSelectedProcedureDescription(null); // Clear description if no procedure is selected or found
+        voNominal,
+      };
+      setProcedureText(selectedProc.getTemplate(currentParams));
+      setSelectedProcedureDescription(selectedProc.description);
+    } else {
+      setSelectedProcedureDescription(null);
+    }
+  };
+
+  const handleClientSendEmail = async () => {
+    const result = await handleSendEmail();
+    if (result) {
+      alert(result.message);
+      if (result.success) {
+        // User info form fields are reset inside useEmailSender
       }
-    };
-  
-    const handleClientSendEmail = async () => {
-       const result = await handleSendEmail();
-       if (result) {
-         alert(result.message);
-         if (result.success) {
-           // User info form fields are reset inside useEmailSender
-         }
-       } else {
-         alert('An unexpected error occurred while preparing to send the email.');
-       }
-    };
-  
-    const chartLines = isChartReady && chartConfig && typeof chartConfig === 'object' && Object.keys(chartConfig).length > 0
-      ? Object.keys(chartConfig).map((key) => (
-          <Line
-            key={key}
-            type="monotone"
-            dataKey={key}
-            stroke={chartConfig[key]?.color}
-            strokeWidth={2}
-            dot={false}
-            name={chartConfig[key]?.label}
-            connectNulls
-            yAxisId={key === 'vo' && currentProcedureName === 'SwVin' ? 'vo' : 'efficiency'}
-          />
-        ))
-      : null; 
-  
-  
-    return (
-      <div className="flex flex-col items-center justify-start min-h-screen p-8 w-full">
-        <h1 className="text-2xl font-bold mb-4">DC Converter Tester V0</h1>
-  
-        <div className="w-full max-w-[80rem] space-y-4">
-  
-          <div className="w-full p-4 border rounded-md shadow-sm">
-            <Label htmlFor="converterModel" className="block text-sm font-medium text-foreground mb-1">Converter Model</Label>
-            <div className="flex items-center gap-2">
-               <Input
-                  id="converterModel"
-                  placeholder="Enter or select model..."
-                  value={converterModel}
-                  onChange={(e) => setConverterModel(e.target.value)}
-                  disabled={isBusy}
-                  className="flex-grow"
-                />
-              <Select value={converterModel} onValueChange={handleModelSelectAndLoad} disabled={isBusy}>
-                <SelectTrigger className="w-[280px] h-10">
-                  <SelectValue placeholder="Load existing model..." />
+    } else {
+      alert('An unexpected error occurred while preparing to send the email.');
+    }
+  };
+
+
+
+  return (
+    <div className="flex flex-colitems-center justify-start min-h-screen p-8 w-full">
+      <h1 className="text-2xl font-bold mb-4">DC Converter Tester V0</h1>
+
+      <div className="w-full max-w-[80rem] space-y-4">
+
+        <div className="w-full p-4 border rounded-md shadow-sm">
+          <Label htmlFor="converterModel" className="block text-sm font-medium text-foreground mb-1">Converter Model</Label>
+          <div className="flex items-center gap-2">
+             <Input
+                id="converterModel"
+                placeholder="Enter or select model..."
+                value={converterModel}
+                onChange={(e) => setConverterModel(e.target.value)}
+                disabled={isBusy}
+                className="flex-grow"
+              />
+            <Select value={converterModel} onValueChange={handleModelSelectAndLoad} disabled={isBusy}>
+              <SelectTrigger className="w-[280px] h-10">
+                <SelectValue placeholder="Load existing model..." />
+              </SelectTrigger>
+              <SelectContent>
+                {availableModels.map((model) => (
+                  <SelectItem key={model} value={model}>
+                    {model}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button onClick={handleSaveParams} disabled={isBusy || !converterModel.trim()} className="h-10">
+              Save Params
+            </Button>
+          </div>
+        </div>
+
+        <div className="w-full p-4 border rounded-md shadow-sm">
+          <h2 className="text-lg font-semibold mb-3 text-foreground">Device Parameters</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+            <div>
+              <Label htmlFor="nominalPower" className="block text-sm font-medium text-foreground mb-1">Nominal Power (W)</Label>
+              <Input id="nominalPower" type="number" placeholder="e.g., 100" value={nominalPower} onChange={(e) => setNominalPower(e.target.value)} disabled={isBusy} className="w-full"/>
+            </div>
+            <div>
+              <Label htmlFor="viMin" className="block text-sm font-medium text-foreground mb-1">Vi (min) (V)</Label>
+              <Input id="viMin" type="number" placeholder="e.g., 9" value={viMin} onChange={(e) => setViMin(e.target.value)} disabled={isBusy} className="w-full"/>
+            </div>
+            <div>
+              <Label htmlFor="viMax" className="block text-sm font-medium text-foreground mb-1">Vi (Max) (V)</Label>
+              <Input id="viMax" type="number" placeholder="e.g., 36" value={viMax} onChange={(e) => setViMax(e.target.value)} disabled={isBusy} className="w-full"/>
+            </div>
+            <div>
+              <Label htmlFor="voNominal" className="block text-sm font-medium text-foreground mb-1">Vo (Nominal) (V)</Label>
+              <Input id="voNominal" type="number" placeholder="e.g., 12" value={voNominal} onChange={(e) => setVoNominal(e.target.value)} disabled={isBusy} className="w-full"/>
+            </div>
+            <div>
+              <Label htmlFor="userTimeout" className="block text-sm font-medium text-foreground mb-1">Cmd Timeout (ms)</Label>
+              <Input
+                id="userTimeout"
+                type="number"
+                placeholder="e.g., 1000"
+                value={userTimeout}
+                onChange={(e) => setUserTimeout(e.target.value)}
+                disabled={isBusy}
+                className="w-full"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="p-4 border rounded-md shadow-sm">
+            <Label htmlFor="procedure" className="block text-sm font-medium text-foreground mb-1">Enter Procedure:</Label>
+            <div className="flex items-center gap-2 mt-1">
+              <Input
+                id="procedure"
+                placeholder="e.g., SwPoVi(10,50,5,12,24,3) or select..."
+                value={procedureText}
+                onChange={(e) => setProcedureText(e.target.value)}
+                className="flex-grow"
+                disabled={isPort1Busy || isPort2Busy || isBusy}
+              />
+              <Select onValueChange={handleProcedureSelect} disabled={isPort1Busy || isPort2Busy || isBusy}>
+                <SelectTrigger className="w-[250px] h-10">
+                  <SelectValue placeholder="Select a procedure..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableModels.map((model) => (
-                    <SelectItem key={model} value={model}>
-                      {model}
+                  {procedureListItems.map((proc) => (
+                    <SelectItem key={proc.value} value={proc.value}>
+                      {proc.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <Button onClick={handleSaveParams} disabled={isBusy || !converterModel.trim()} className="h-10">
-                Save Params
-              </Button>
             </div>
+            <Button onClick={handleAddProcedureToQueue} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>
+              Add Procedure to Queue
+            </Button>
+            {selectedProcedureDescription && (
+              <div className="mt-3 p-3 border rounded-md bg-muted/50 text-sm">
+                <h4 className="font-semibold mb-1 text-foreground">Procedure Details:</h4>
+                <pre className="whitespace-pre-wrap font-sans text-muted-foreground">{selectedProcedureDescription}</pre>
+              </div>
+            )}
           </div>
-  
-          <div className="w-full p-4 border rounded-md shadow-sm">
-            <h2 className="text-lg font-semibold mb-3 text-foreground">Device Parameters</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-              <div>
-                <Label htmlFor="nominalPower" className="block text-sm font-medium text-foreground mb-1">Nominal Power (W)</Label>
-                <Input id="nominalPower" type="number" placeholder="e.g., 100" value={nominalPower} onChange={(e) => setNominalPower(e.target.value)} disabled={isBusy} className="w-full"/>
-              </div>
-              <div>
-                <Label htmlFor="viMin" className="block text-sm font-medium text-foreground mb-1">Vi (min) (V)</Label>
-                <Input id="viMin" type="number" placeholder="e.g., 9" value={viMin} onChange={(e) => setViMin(e.target.value)} disabled={isBusy} className="w-full"/>
-              </div>
-              <div>
-                <Label htmlFor="viMax" className="block text-sm font-medium text-foreground mb-1">Vi (Max) (V)</Label>
-                <Input id="viMax" type="number" placeholder="e.g., 36" value={viMax} onChange={(e) => setViMax(e.target.value)} disabled={isBusy} className="w-full"/>
-              </div>
-              <div>
-                <Label htmlFor="voNominal" className="block text-sm font-medium text-foreground mb-1">Vo (Nominal) (V)</Label>
-                <Input id="voNominal" type="number" placeholder="e.g., 12" value={voNominal} onChange={(e) => setVoNominal(e.target.value)} disabled={isBusy} className="w-full"/>
-              </div>
-              <div>
-                <Label htmlFor="userTimeout" className="block text-sm font-medium text-foreground mb-1">Cmd Timeout (ms)</Label>
-                <Input
-                  id="userTimeout"
-                  type="number"
-                  placeholder="e.g., 1000"
-                  value={userTimeout}
-                  onChange={(e) => setUserTimeout(e.target.value)}
-                  disabled={isBusy}
-                  className="w-full"
-                />
-              </div>
+
+          <div className="p-4 border rounded-md shadow-sm">
+            <Label htmlFor="command" className="block text-sm font-medium text-foreground">Enter Command:</Label>
+            <div className="flex items-center space-x-2 mt-1">
+              <Input
+                id="command"
+                placeholder="Enter a command"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                className="flex-grow"
+                disabled={isPort1Busy || isPort2Busy || isBusy}
+              />
+              <RadioGroup value={selectedCommandPort} onValueChange={(value: 'COM3' | 'COM6') => setSelectedCommandPort(value)} className="flex items-center">
+                <div className="flex items-center space-x-1"><RadioGroupItem value="COM3" id="r_com3" /><Label htmlFor="r_com3" className="text-xs">COM3</Label></div>
+                <div className="flex items-center space-x-1"><RadioGroupItem value="COM6" id="r_com6" /><Label htmlFor="r_com6" className="text-xs">COM6</Label></div>
+              </RadioGroup>
             </div>
+            <Button onClick={handleAddCommand} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>Add Command to Queue</Button>
           </div>
-  
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 border rounded-md shadow-sm">
-              <Label htmlFor="procedure" className="block text-sm font-medium text-foreground mb-1">Enter Procedure:</Label>
-              <div className="flex items-center gap-2 mt-1">
-                <Input
-                  id="procedure"
-                  placeholder="e.g., SwPoVi(10,50,5,12,24,3) or select..."
-                  value={procedureText}
-                  onChange={(e) => setProcedureText(e.target.value)}
-                  className="flex-grow"
-                  disabled={isPort1Busy || isPort2Busy || isBusy}
-                />
-                <Select onValueChange={handleProcedureSelect} disabled={isPort1Busy || isPort2Busy || isBusy}>
-                  <SelectTrigger className="w-[250px] h-10">
-                    <SelectValue placeholder="Select a procedure..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {procedureListItems.map((proc) => (
-                      <SelectItem key={proc.value} value={proc.value}>
-                        {proc.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button onClick={handleAddProcedureToQueue} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>
-                Add Procedure to Queue
-              </Button>
-              {selectedProcedureDescription && (
-                <div className="mt-3 p-3 border rounded-md bg-muted/50 text-sm">
-                  <h4 className="font-semibold mb-1 text-foreground">Procedure Details:</h4>
-                  <pre className="whitespace-pre-wrap font-sans text-muted-foreground">{selectedProcedureDescription}</pre>
-                </div>
-              )}
-            </div>
-  
-            <div className="p-4 border rounded-md shadow-sm">
-              <Label htmlFor="command" className="block text-sm font-medium text-foreground">Enter Command:</Label>
-              <div className="flex items-center space-x-2 mt-1">
-                <Input
-                  id="command"
-                  placeholder="Enter a command"
-                  value={command}
-                  onChange={(e) => setCommand(e.target.value)}
-                  className="flex-grow"
-                  disabled={isPort1Busy || isPort2Busy || isBusy}
-                />
-                <RadioGroup value={selectedCommandPort} onValueChange={(value: 'COM3' | 'COM6') => setSelectedCommandPort(value)} className="flex items-center">
-                  <div className="flex items-center space-x-1"><RadioGroupItem value="COM3" id="r_com3" /><Label htmlFor="r_com3" className="text-xs">COM3</Label></div>
-                  <div className="flex items-center space-x-1"><RadioGroupItem value="COM6" id="r_com6" /><Label htmlFor="r_com6" className="text-xs">COM6</Label></div>
-                </RadioGroup>
-              </div>
-              <Button onClick={handleAddCommand} className="mt-2 w-full" disabled={isPort1Busy || isPort2Busy || isBusy}>Add Command to Queue</Button>
-            </div>
-          </div>
-  
-  
-          {commands.length > 0 && (
-            <div className="w-full mt-4 h-[200px] overflow-y-auto border rounded-md shadow-sm">
-              <Table>
-                <TableCaption>List of commands in queue</TableCaption>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[100px] sticky top-0 bg-card z-10">Resp</TableHead>
-                    {["Vi", "Ii", "Pi", "Vo", "Io", "Po", "Eff"].map((label, i) => (<TableHead key={`data-header-${i}`} className="w-[80px] sticky top-0 bg-card z-10">{label}</TableHead>))}
-                    <TableHead className="min-w-[150px] sticky top-0 bg-card z-10">Command</TableHead>
-                    <TableHead className="w-[70px] sticky top-0 bg-card z-10">Port</TableHead>
-                    <TableHead className="w-[120px] sticky top-0 bg-card z-10">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {commands.map((cmdInfo, index) => (
-                    <TableRow key={index}>
-                      {Array.from({ length: 8 }).map((_, cellIndex) => (
-                        <TableCell key={`cell-${index}-${cellIndex}`} className="p-1">
-                          <Input
-                            type="text"
-                            value={commandResponses[index * 8 + cellIndex] || ''}
-                            readOnly
-                            className={`h-8 text-xs ${cellIndex === 0 ? "w-[95px]" : "w-[75px]"}`}
-                          />
-                        </TableCell>
-                      ))}
-                      <TableCell className="truncate text-xs p-1" style={{ maxWidth: '150px' }}>{cmdInfo.text}</TableCell>
-                      <TableCell className="text-xs p-1">{cmdInfo.targetPort}</TableCell>
-                      <TableCell className="p-1">
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleRemoveCommand(index)}
-                          disabled={isBusy || isPort1Busy || isPort2Busy}
-                          className="h-8 px-2 text-xs"
-                        >
-                          <Trash2 className="h-3 w-3 mr-1" /> Remove
-                        </Button>
+        </div>
+
+
+        {commands.length > 0 && (
+          <div className="w-full mt-4 h-[200px] overflow-y-auto border rounded-md shadow-sm">
+            <Table>
+              <TableCaption>List of commands in queue</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[100px] sticky top-0 bg-card z-10">Resp</TableHead>
+                  {["Vi", "Ii", "Pi", "Vo", "Io", "Po", "Eff"].map((label, i) => (<TableHead key={`data-header-${i}`} className="w-[80px] sticky top-0 bg-card z-10">{label}</TableHead>))}
+                  <TableHead className="min-w-[150px] sticky top-0 bg-card z-10">Command</TableHead>
+                  <TableHead className="w-[70px] sticky top-0 bg-card z-10">Port</TableHead>
+                  <TableHead className="w-[120px] sticky top-0 bg-card z-10">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {commands.map((cmdInfo, index) => (
+                  <TableRow key={index}>
+                    {Array.from({ length: 8 }).map((_, cellIndex) => (
+                      <TableCell key={`cell-${index}-${cellIndex}`} className="p-1">
+                        <Input
+                          type="text"
+                          value={commandResponses[index * 8 + cellIndex] || ''}
+                          readOnly
+                          className={`h-8 text-xs ${cellIndex === 0 ? "w-[95px]" : "w-[75px]"}`}
+                        />
                       </TableCell>
-                    </TableRow>
-                  ))}
-  
-                </TableBody>
-              </Table>
-            </div>
-          )}
-  
-          <div className="flex flex-col space-y-2">
-            <Button
-              onClick={handleSendMultipleCommands}
-              className="w-full"
-              disabled={(!isConnected1 && !isConnected2) || isBusy || isPort1Busy || isPort2Busy || commands.length === 0}
-            >
-              {isBusy ? 'Sending Commands...' : 'Send All Commands from Queue'}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleRemoveAllCommands}
-              className="w-full"
-              disabled={commands.length === 0 || isBusy || isPort1Busy || isPort2Busy}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Clear Queue
-            </Button>
+                    ))}
+                    <TableCell className="truncate text-xs p-1" style={{ maxWidth: '150px' }}>{cmdInfo.text}</TableCell>
+                    <TableCell className="text-xs p-1">{cmdInfo.targetPort}</TableCell>
+                    <TableCell className="p-1">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleRemoveCommand(index)}
+                        disabled={isBusy || isPort1Busy || isPort2Busy}
+                        className="h-8 px-2 text-xs"
+                      >
+                        <Trash2 className="h-3 w-3 mr-1" /> Remove
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+
+              </TableBody>
+            </Table>
           </div>
-  
-  
-          {chartData.length > 0 && Object.keys(chartConfig).length > 0 && isChartReady && ( 
-            <Card id="efficiency-chart-card" className="w-full mt-4 shadow-sm">
-              <div className="flex justify-end p-2">
-                <Button onClick={handleCaptureChart} size="sm">Capture Plot</Button>
-              </div>
-              <CardHeader>
-                <CardTitle>{currentProcedureName === 'SwVin' ? 'Efficiency and Vo vs. Input Voltage' : 'Efficiency vs. Output Power'}</CardTitle> 
-                <CardDescription>{currentProcedureName === 'SwVin' ? 'Efficiency and Output Voltage curves at varying input voltages (Eff = Po/Pi)' : 'Efficiency curves at different input voltages (Eff = Po/Pi)'}</CardDescription> 
-              </CardHeader>
-              <CardContent>
-                <ChartContainer config={chartConfig} className="min-h-[300px] w-full">
-                  <LineChart data={chartData} margin={{ top: 5, right: currentProcedureName === 'SwVin' ? 130 : 100, left: 0, bottom: 20 }}> 
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="x" 
-                      type="number"
-                      name={currentProcedureName === 'SwVin' ? 'Input Voltage (Vin)' : 'Output Power (Po)'} 
-                      label={{ value: currentProcedureName === 'SwVin' ? 'Input Voltage (Vin) (V)' : 'Output Power (Po) (W)', position: "insideBottom", offset: -15 }} 
-                      domain={['auto', 'auto']}
-                      tickFormatter={(value) => Number(value).toFixed(1)} 
-                      allowDuplicatedCategory={false}
-                    />
-                    
-                    {currentProcedureName === 'SwVin' ? (
-                      <>
-                        <YAxis
-                          yAxisId="efficiency"
-                          name="Efficiency"
-                          label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }}
-                          domain={[0, 'auto']}
-                          tickFormatter={(value) => Number(value).toFixed(3)}
-                        />
-                        <YAxis
-                          yAxisId="vo"
-                          orientation="right"
-                          name="Output Voltage (Vo)"
-                          label={{ value: "Output Voltage (Vo) (V)", angle: 90, position: "insideRight" }}
-                          domain={['auto', 'auto']}
-                          tickFormatter={(value) => Number(value).toFixed(2)}
-                          stroke={chartConfig['vo']?.color} 
-                        />
-                      </>
-                    ) : (
+        )}
+
+        <div className="flex flex-col space-y-2">
+          <Button
+            onClick={handleSendMultipleCommands}
+            className="w-full"
+            disabled={(!isConnected1 && !isConnected2) || isBusy || isPort1Busy || isPort2Busy || commands.length === 0}
+          >
+            {isBusy ? 'Sending Commands...' : 'Send All Commands from Queue'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleRemoveAllCommands}
+            className="w-full"
+            disabled={commands.length === 0 || isBusy || isPort1Busy || isPort2Busy}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Clear Queue
+          </Button>
+        </div>
+
+
+        {chartData.length > 0 && Object.keys(chartConfig).length > 0 && (
+          <Card id="efficiency-chart-card" className="w-full mt-4 shadow-sm">
+            <div className="flex justify-end p-2">
+              <Button onClick={handleCaptureChart} size="sm">Capture Plot</Button>
+            </div>
+            <CardHeader>
+              <CardTitle>{currentProcedureName === 'SwVin' ? 'Efficiency and Vo vs. Input Voltage' : 'Efficiency vs. Output Power'}</CardTitle> {/* Conditional Title */}
+              <CardDescription>{currentProcedureName === 'SwVin' ? 'Efficiency and Output Voltage curves at varying input voltages (Eff = Po/Pi)' : 'Efficiency curves at different input voltages (Eff = Po/Pi)'}</CardDescription> {/* Conditional Description */}
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={chartConfig} className="min-h-[300px] w-full">
+                <LineChart data={chartData} margin={{ top: 5, right: currentProcedureName === 'SwVin' ? 130 : 100, left: 0, bottom: 20 }}> {/* Adjust right margin for dual Y-axis */}
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="x" // Use generic x
+                    type="number"
+                    name={currentProcedureName === 'SwVin' ? 'Input Voltage (Vin)' : 'Output Power (Po)'} // Conditional name
+                    label={{ value: currentProcedureName === 'SwVin' ? 'Input Voltage (Vin) (V)' : 'Output Power (Po) (W)', position: "insideBottom", offset: -15 }} // Conditional label
+                    domain={['auto', 'auto']}
+                    tickFormatter={(value) => Number(value).toFixed(1)} // Use Number() for safety
+                    allowDuplicatedCategory={false}
+                  />
+                  {/* Conditional Y-Axes */}
+                  {currentProcedureName === 'SwVin' ? (
+                    <>
                       <YAxis
-                        yAxisId="efficiency" // Ensure YAxis has an ID even if it's the only one for non-SwVin
-                        name="Efficiency (Eff)"
+                        yAxisId="efficiency"
+                        name="Efficiency"
                         label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }}
                         domain={[0, 'auto']}
                         tickFormatter={(value) => Number(value).toFixed(3)}
                       />
-                    )}
-  
-                    <ChartTooltip
-                      cursor={true}
-                      content={<ChartTooltipContent
-                        labelFormatter={(value, payload) => currentProcedureName === 'SwVin' ? `Vin: ${Number(payload?.[0]?.payload?.x || value).toFixed(2)} V` : `Po: ${Number(payload?.[0]?.payload?.x || value).toFixed(2)} W`} 
-                        formatter={(value, name, props) => {
-                          const label = chartConfig[name as string]?.label || name;
-                          return [(value as number).toFixed(currentProcedureName === 'SwVin' && name === 'vo' ? 2 : 3), label]; 
-                        }}
+                      <YAxis
+                        yAxisId="vo"
+                        orientation="right"
+                        name="Output Voltage (Vo)"
+                        label={{ value: "Output Voltage (Vo) (V)", angle: 90, position: "insideRight" }}
+                        domain={['auto', 'auto']}
+                        tickFormatter={(value) => Number(value).toFixed(2)}
+                        stroke={chartConfig['vo']?.color} // Apply color to axis
                       />
-                      }
+                    </>
+                  ) : (
+                    <YAxis
+                      name="Efficiency (Eff)"
+                      label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }}
+                      domain={[0, 'auto']}
+                      tickFormatter={(value) => Number(value).toFixed(3)}
                     />
-                    {chartLines}
-                    <ChartLegend
-                      content={<ChartLegendContent />}
-                      layout="vertical"
-                      verticalAlign="middle"
-                      align="right"
+                  )}
+
+                  <ChartTooltip
+                    cursor={true}
+                    content={<ChartTooltipContent
+                      labelFormatter={(value, payload) => currentProcedureName === 'SwVin' ? `Vin: ${Number(payload?.[0]?.payload?.x || value).toFixed(2)} V` : `Po: ${Number(payload?.[0]?.payload?.x || value).toFixed(2)} W`} // Conditional label formatter
+                      formatter={(value, name, props) => {
+                        const label = chartConfig[name as string]?.label || name;
+                        return [(value as number).toFixed(currentProcedureName === 'SwVin' && name === 'vo' ? 2 : 3), label]; // Conditional decimal places
+                      }}
                     />
-                  </LineChart>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-          )}
-  
-            {showUserInfoForm && (
-            <div className="mt-8 p-6 border rounded-md shadow-sm">
-              <h2 className="text-xl font-semibold mb-4">Enter Your Information</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex flex-col space-y-1.5">
-                  <Label htmlFor="name">Name <span className="text-red-500">*</span></Label>
-                  <Input id="name" placeholder="Your Name" value={userName} onChange={(e) => setUserName(e.target.value)} required />
-                </div>
-                <div className="flex flex-col space-y-1.5">
-                  <Label htmlFor="email">Email <span className="text-red-500">*</span></Label>
-                  <Input id="email" type="email" placeholder="Your Email" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} required />
-                </div>
-                <div className="flex flex-col space-y-1.5">
-                  <Label htmlFor="company">Company</Label>
-                  <Input id="company" placeholder="Your Company" value={userCompany} onChange={(e) => setUserCompany(e.target.value)} />
-                </div>
-                <div className="flex flex-col space-y-1.5">
-                  <Label htmlFor="industry">Industry</Label>
-                  <Input id="industry" placeholder="Your Industry" value={userIndustry} onChange={(e) => setUserIndustry(e.target.value)} />
-                </div>
-                <div className="flex flex-col space-y-1.5">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input id="phone" type="tel" placeholder="Your Phone Number" value={userPhone} onChange={(e) => setUserPhone(e.target.value)} />
-                </div>
+                    }
+                  />
+                  {Object.keys(newChartConfig).map((key) => (
+                    <Line
+                      key={key}
+                      type="monotone"
+                      dataKey={key} // Use generic dataKey
+                      stroke={newChartConfig[key]?.color}
+                      strokeWidth={2}
+                      dot={false}
+                      name={newChartConfig[key]?.label}
+                      connectNulls
+                      yAxisId={key === 'vo' ? 'vo' : 'efficiency'} // Conditional yAxisId
+                    />
+                  ))}
+                  <ChartLegend
+                    content={<ChartLegendContent />}
+                    layout="vertical"
+                    verticalAlign="middle"
+                    align="right"
+                  />
+                </LineChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        )}
+
+          {showUserInfoForm && (
+          <div className="mt-8 p-6 border rounded-md shadow-sm">
+            <h2 className="text-xl font-semibold mb-4">Enter Your Information</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="name">Name <span className="text-red-500">*</span></Label>
+                <Input id="name" placeholder="Your Name" value={userName} onChange={(e) => setUserName(e.target.value)} required />
               </div>
-              <div className="mt-6 flex justify-end">
-                <Button onClick={handleClientSendEmail} disabled={isSendingEmail || !userName || !userEmail}>
-                  {isSendingEmail ? 'Sending...' : 'Send Email'}
-                </Button>
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="email">Email <span className="text-red-500">*</span></Label>
+                <Input id="email" type="email" placeholder="Your Email" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} required />
+              </div>
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="company">Company</Label>
+                <Input id="company" placeholder="Your Company" value={userCompany} onChange={(e) => setUserCompany(e.target.value)} />
+              </div>
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="industry">Industry</Label>
+                <Input id="industry" placeholder="Your Industry" value={userIndustry} onChange={(e) => setUserIndustry(e.target.value)} />
+              </div>
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input id="phone" type="tel" placeholder="Your Phone Number" value={userPhone} onChange={(e) => setUserPhone(e.target.value)} />
               </div>
             </div>
-          )}
-  
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Button onClick={handleActivatePort1} variant="outline" className="w-full" disabled={isPort1Busy || isBusy}>
-              {isPort1Busy ? (isConnected1 ? 'Disconnecting COM3...' : 'Connecting COM3...') : (isConnected1 ? 'Deactivate COM3 Port' : 'Activate COM3 Port')}
-              <Plug className="ml-2 h-4 w-4" />
-            </Button>
-            <Button onClick={handleActivatePort2} variant="outline" className="w-full" disabled={isPort2Busy || isBusy}>
-              {isPort2Busy ? (isConnected2 ? 'Disconnecting COM6...' : 'Connecting COM6...') : (isConnected2 ? 'Deactivate COM6 Port' : 'Activate COM6 Port')}
-              <Plug className="ml-2 h-4 w-4" />
-            </Button>
+            <div className="mt-6 flex justify-end">
+              <Button onClick={handleClientSendEmail} disabled={isSendingEmail || !userName || !userEmail}>
+                {isSendingEmail ? 'Sending...' : 'Send Email'}
+              </Button>
+            </div>
           </div>
-  
-          <div>
-            <Label htmlFor="response" className="block text-sm font-medium text-foreground">Response Log:</Label>
-            <Textarea
-              ref={responseLogRef}
-              id="response"
-              placeholder="Response log will be displayed here"
-              value={response ? response + String.fromCharCode(160) : String.fromCharCode(160)}
-              readOnly
-              className="mt-1 h-24 resize-none text-xs bg-black text-white font-mono"
-            />
-          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Button onClick={handleActivatePort1} variant="outline" className="w-full" disabled={isPort1Busy || isBusy}>
+            {isPort1Busy ? (isConnected1 ? 'Disconnecting COM3...' : 'Connecting COM3...') : (isConnected1 ? 'Deactivate COM3 Port' : 'Activate COM3 Port')}
+            <Plug className="ml-2 h-4 w-4" />
+          </Button>
+          <Button onClick={handleActivatePort2} variant="outline" className="w-full" disabled={isPort2Busy || isBusy}>
+            {isPort2Busy ? (isConnected2 ? 'Disconnecting COM6...' : 'Connecting COM6...') : (isConnected2 ? 'Deactivate COM6 Port' : 'Activate COM6 Port')}
+            <Plug className="ml-2 h-4 w-4" />
+          </Button>
+        </div>
+
+        <div>
+          <Label htmlFor="response" className="block text-sm font-medium text-foreground">Response Log:</Label>
+          <Textarea
+            ref={responseLogRef}
+            id="response"
+            placeholder="Response log will be displayed here"
+            value={response ? response + String.fromCharCode(160) : String.fromCharCode(160)}
+            readOnly
+            className="mt-1 h-24 resize-none text-xs bg-black text-white font-mono"
+          />
         </div>
       </div>
-    );
-  }
-  
+    </div>
+  );
+}
 
-    
