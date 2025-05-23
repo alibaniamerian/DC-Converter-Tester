@@ -249,7 +249,6 @@ export default function Home() {
 
   const { converterModel, setConverterModel, availableModels, loadConverterParams, saveConverterParams } = useConverterModel();
 
-  // >>> Paste this block here (between useConverterModel and useComPort) <<<
   const {
     showUserInfoForm,
     userName, setUserName,
@@ -258,21 +257,16 @@ export default function Home() {
     userIndustry, setUserIndustry,
     userPhone, setUserPhone,
     isSendingEmail,
-    handleShowUserInfoForm, // This function will be called by handleCaptureChart
-    handleSendEmail,        // This function will be called by the "Send Email" button
+    handleShowUserInfoForm, 
+    handleSendEmail,        
   } = useEmailSender({
-    deviceModel: converterModel, // Pass converterModel state
-    nominalPower: nominalPower, // Pass nominalPower state
-    viMin: viMin,               // Pass viMin state
-    viMax: viMax,               // Pass viMax state
-    voNominal: voNominal,       // Pass voNominal state
-    // Pass other device parameters if needed by the hook's handleSendEmail
+    deviceModel: converterModel, 
+    nominalPower: nominalPower, 
+    viMin: viMin,               
+    viMax: viMax,               
+    voNominal: voNominal,       
   });
-  // >>> End of block to paste <<<
-
-
-
-
+  
   const { port1, isConnected1, activatePort1, port2, isConnected2, activatePort2 } = useComPort({
     setIsBusy: setIsBusy, 
     setResponse,
@@ -291,7 +285,7 @@ export default function Home() {
       responseLogRef.current.scrollTop = responseLogRef.current.scrollHeight;
     }
   }, [response]);
-    // >>> Paste this handleCaptureChart function here (before handleAddCommand) <<<
+    
     const handleCaptureChart = async () => {
       const chartElement = document.getElementById('efficiency-chart-card');
       if (!chartElement) {
@@ -304,7 +298,6 @@ export default function Home() {
           const canvas = await html2canvas(chartElement);
           const imageBase64 = canvas.toDataURL('image/png');
   
-          // Create a temporary download link for user convenience
           const link = document.createElement('a');
           const filename = `${converterModel || 'converter'}-${procedureText.replace(/[^a-zA-Z0-9]/g, '_') || 'procedure'}.png`;
           link.download = filename;
@@ -312,9 +305,8 @@ export default function Home() {
           link.click();
           setResponse(prev => prev + `${String.fromCharCode(10)}Chart captured and download initiated. Preparing email form...`);
   
-          // Call handleShowUserInfoForm with the captured image to display the email form
           if (handleShowUserInfoForm) {
-            handleShowUserInfoForm(imageBase64); // Pass the base64 image to the function
+            handleShowUserInfoForm(imageBase64); 
           } else {
             setResponse(prev => prev + `${String.fromCharCode(10)}Error: Email form handler not available.`);
           }
@@ -323,8 +315,6 @@ export default function Home() {
            setResponse(prev => prev + `${String.fromCharCode(10)}Error capturing chart: ${error.message}`);
       }
     };
-
-    // >>> End of handleCaptureChart function block <<<
 
 
   const handleAddCommand = () => {
@@ -365,7 +355,7 @@ export default function Home() {
         ...Array(procedureCommands.length * 8).fill('')
       ]);
       setProcedureText('');
-      setSelectedProcedureDescription(null); // Clear description after adding to queue
+      setSelectedProcedureDescription(null); 
     }
   };
 
@@ -643,6 +633,19 @@ export default function Home() {
     }
   };
 
+  const handleClientSendEmail = async () => {
+    const result = await handleSendEmail(); // From useEmailSender hook
+    if (result) {
+      alert(result.message); // Display the server's response message
+      if (result.success) {
+        // Optionally reset form fields from useEmailSender if needed here
+        // e.g., by calling a reset function exposed by useEmailSender
+      }
+    } else {
+      alert('An unexpected error occurred while preparing to send the email.');
+    }
+  };
+
 
   return (
     <div className="flex flex-col items-center justify-start min-h-screen p-8 w-full">
@@ -821,12 +824,10 @@ export default function Home() {
         </Button>
 
         {chartData.length > 0 && Object.keys(chartConfig).length > 0 && (
-          <Card id="efficiency-chart-card" className="w-full mt-4 shadow-sm"> {/* Added id="efficiency-chart-card" */}
-            {/* >>> Paste this div with the Button here (before <CardHeader>) <<< */}
+          <Card id="efficiency-chart-card" className="w-full mt-4 shadow-sm"> 
             <div className="flex justify-end p-2">
               <Button onClick={handleCaptureChart} size="sm">Capture Plot</Button>
             </div>
-            {/* >>> End of div with Button <<< */}
             <CardHeader>
               <CardTitle>Efficiency vs. Output Power</CardTitle>
               <CardDescription>Efficiency curves at different input voltages (Eff = Po/Pi)</CardDescription>
@@ -884,7 +885,6 @@ export default function Home() {
           </Card>
         )}
         
-          {/* >>> Paste this block here (starting on Line 886) <<< */}
           {showUserInfoForm && (
           <div className="mt-8 p-6 border rounded-md shadow-sm">
             <h2 className="text-xl font-semibold mb-4">Enter Your Information</h2>
@@ -911,13 +911,12 @@ export default function Home() {
               </div>
             </div>
             <div className="mt-6 flex justify-end">
-              <Button onClick={handleSendEmail} disabled={isSendingEmail || !userName || !userEmail}>
+              <Button onClick={handleClientSendEmail} disabled={isSendingEmail || !userName || !userEmail}>
                 {isSendingEmail ? 'Sending...' : 'Send Email'}
               </Button>
             </div>
           </div>
         )}
-        {/* >>> End of block to paste <<< */}
   
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Button onClick={handleActivatePort1} variant="outline" className="w-full" disabled={isPort1Busy || isBusy}>

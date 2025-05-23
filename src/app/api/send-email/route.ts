@@ -3,35 +3,24 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 
-// MODIFICATION 1: Update EmailPayload interface
 interface EmailPayload {
   to: string;
   cc?: string;
   subject: string;
   textBody: string;
-  plotPictureBase64?: string; // Added for the image
-  userName?: string;          // Added for dynamic filename
-  deviceModel?: string;       // Added for dynamic filename
+  plotPictureBase64?: string; 
+  userName?: string;          
+  deviceModel?: string;       
 }
 
 export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json()) as EmailPayload;
-    // MODIFICATION 2: Destructure the new fields from the payload
     const { to, cc, subject, textBody, plotPictureBase64, userName, deviceModel } = payload;
 
     if (!to || !subject || !textBody) {
       return NextResponse.json({ message: 'Missing required email fields (to, subject, textBody)' }, { status: 400 });
     }
-
-    // --- Gmail Configuration ---
-    // IMPORTANT:
-    // 1. Store your Gmail email and an "App Password" (if using 2-Step Verification)
-    //    in environment variables. DO NOT hardcode them here.
-    // 2. Create a .env.local file in your project root (and add it to .gitignore):
-    //    GMAIL_USER=your-email@gmail.com
-    //    GMAIL_APP_PASSWORD=your-generated-16-character-app-password
-    // 3. How to generate an App Password: https://support.google.com/accounts/answer/185833
 
     const gmailUser = process.env.GMAIL_USER;
     const gmailAppPassword = process.env.GMAIL_APP_PASSWORD;
@@ -42,13 +31,11 @@ export async function POST(request: NextRequest) {
         'Email sending will be SIMULATED. ' +
         'Please set them up in your .env.local file (and ensure it is in .gitignore) for actual email sending via Gmail.'
       );
-      // Fallback to simulation if credentials are not set
       console.log('--- SIMULATING Email Sending (Gmail Credentials Missing on Server) ---');
       console.log('To:', to);
       if (cc) console.log('CC:', cc);
       console.log('Subject:', subject);
-      console.log('Body:' + String.fromCharCode(10), textBody); // Corrected this line to use String.fromCharCode(10)
-      // MODIFICATION 3 (Simulation Part): Log if plotPictureBase64 is received
+      console.log('Body:' + String.fromCharCode(10), textBody);
       if (plotPictureBase64) {
         console.log('Plot Picture Data: Received (simulated attachment)');
       }
@@ -56,30 +43,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Email processed (simulated - Gmail credentials not configured on server)' }, { status: 200 });
     }
 
+    // If credentials are present, attempt real email sending
+    console.log(`Attempting to send email via Gmail with configured credentials for user: ${gmailUser}...`);
+
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: gmailUser,
-        pass: gmailAppPassword, // Use the App Password here
+        pass: gmailAppPassword, 
       },
     });
 
-    // MODIFICATION 4: Update mailOptions to include attachments
     const mailOptions: nodemailer.SendMailOptions = {
-      from: `"DC Converter Tester" <${gmailUser}>`, // Sender address (must be your Gmail address)
+      from: `"DC Converter Tester" <${gmailUser}>`, 
       to: to,
       cc: cc,
       subject: subject,
       text: textBody,
-      // html: `<b>Hello world?</b>`, // You can also send an HTML body if needed
-      attachments: [], // Initialize attachments array
+      attachments: [], 
     };
 
-    // Conditionally add the attachment if plotPictureBase64 exists
     if (plotPictureBase64) {
-      mailOptions.attachments!.push({ // The '!' asserts attachments is not undefined
-        filename: `${deviceModel || 'plot'}-${userName || 'user'}.png`, // Dynamic filename
-        content: plotPictureBase64.split('base64,')[1], // Remove the data URI prefix
+      mailOptions.attachments!.push({ 
+        filename: `${deviceModel || 'plot'}-${userName || 'user'}.png`,
+        content: plotPictureBase64.split('base64,')[1], 
         encoding: 'base64',
         contentType: 'image/png',
       });

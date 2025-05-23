@@ -1,6 +1,5 @@
 // src/hooks/useEmailSender.ts
 import { useState } from 'react';
-// import html2canvas from 'html2canvas'; // Removed: html2canvas is used in page.tsx, not directly here
 
 interface UseEmailSenderProps {
   deviceModel: string;
@@ -8,7 +7,11 @@ interface UseEmailSenderProps {
   viMin: string;
   viMax: string;
   voNominal: string;
-  // You might need other device info here
+}
+
+interface EmailSendResult {
+  success: boolean;
+  message: string;
 }
 
 export const useEmailSender = ({
@@ -20,28 +23,24 @@ export const useEmailSender = ({
 }: UseEmailSenderProps) => {
   const [showUserInfoForm, setShowUserInfoForm] = useState(false);
   const [userName, setUserName] = useState('');
-  const [userEmail, setUserEmail] = useState(''); // This will be the 'to' address
+  const [userEmail, setUserEmail] = useState(''); 
   const [userCompany, setUserCompany] = useState('');
   const [userIndustry, setUserIndustry] = useState('');
   const [userPhone, setUserPhone] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [plotPictureBase64, setPlotPictureBase64] = useState<string | null>(null);
 
-  // Function to show the form and store plot data
   const handleShowUserInfoForm = (plotDataBase64: string) => {
     setPlotPictureBase64(plotDataBase64);
     setShowUserInfoForm(true);
   };
 
-  // Function to send the email
-  const handleSendEmail = async () => {
+  const handleSendEmail = async (): Promise<EmailSendResult> => {
     if (!userName || !userEmail) {
-      alert('Please fill in mandatory fields: Name and Email.');
-      return;
+      return { success: false, message: 'Please fill in mandatory fields: Name and Email.' };
     }
     if (!plotPictureBase64) {
-        alert('Plot picture data is missing.');
-        return;
+        return { success: false, message: 'Plot picture data is missing.'};
     }
 
     setIsSendingEmail(true);
@@ -61,16 +60,13 @@ export const useEmailSender = ({
     textBody += `Plot image is attached.\n`;
 
     const emailPayload = {
-      to: userEmail, // Send to the email address provided by the user
-      cc: 'alibani@gmail.com', // CC to alibani@gmail.com
+      to: userEmail, 
+      cc: 'alibani@gmail.com', 
       subject: subject,
       textBody: textBody,
-      plotPictureBase64: plotPictureBase64, // Pass the base64 image data
-      // Include other user/device details if your backend needs them directly
-      // in addition to being in the textBody
+      plotPictureBase64: plotPictureBase64, 
       userName: userName,
       deviceModel: deviceModel,
-      nominalSpecs: nominalSpecInfo, // an example if your API wants it structured
     };
 
     try {
@@ -85,21 +81,20 @@ export const useEmailSender = ({
       const data = await response.json();
 
       if (response.ok) {
-        alert('Email sent successfully!');
-        // Optionally reset form and hide it
         setShowUserInfoForm(false);
         setUserName('');
         setUserEmail('');
         setUserCompany('');
         setUserIndustry('');
         setUserPhone('');
-        setPlotPictureBase64(null); // Clear stored plot data
+        setPlotPictureBase64(null);
+        return { success: true, message: data.message || 'Email sent successfully!' };
       } else {
-        alert(`Error sending email: ${data.message}`);
+        return { success: false, message: data.message || 'Error sending email.' };
       }
     } catch (error: any) {
       console.error('Failed to send email:', error);
-      alert('An error occurred while trying to send the email.');
+      return { success: false, message: 'An error occurred while trying to send the email.' };
     } finally {
       setIsSendingEmail(false);
     }
@@ -113,7 +108,7 @@ export const useEmailSender = ({
     userIndustry, setUserIndustry,
     userPhone, setUserPhone,
     isSendingEmail,
-    handleShowUserInfoForm, // Function to call from plot capture
-    handleSendEmail, // Function for the email button
+    handleShowUserInfoForm,
+    handleSendEmail, 
   };
 };
