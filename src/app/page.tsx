@@ -40,9 +40,9 @@ interface QueuedCommand {
   meta?: { calculatesPo?: boolean; calculatesPi?: boolean; calculatesEff?: boolean };
 }
 
-interface ChartDataPoint { // Changed from MultiLineChartDataPoint
-  x: number; // Generic x-axis value (Vin for SwVin, Po for others)
-  [key: string]: number | undefined; // y-values (e.g., efficiency, vo)
+interface ChartDataPoint { 
+  x: number; 
+  [key: string]: number | undefined; 
 }
 
 const lineColors = [
@@ -215,10 +215,10 @@ export default function Home() {
   const [isPort1Busy, setIsPort1Busy] = useState(false);
   const [isPort2Busy, setIsPort2Busy] = useState(false);
   const [commandResponses, setCommandResponses] = useState<string[]>([]);
-  const [chartData, setChartData] = useState<ChartDataPoint[]>([]); // Updated type
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]); 
   const [chartConfig, setChartConfig] = useState<ChartConfig>({});
-  const [currentProcedureName, setCurrentProcedureName] = useState<string | undefined>(undefined); // Added state
-  const [isChartReady, setIsChartReady] = useState(false); // Added state
+  const [currentProcedureName, setCurrentProcedureName] = useState<string | undefined>(undefined); 
+  const [isChartReady, setIsChartReady] = useState(false); 
   const responseLogRef = useRef<HTMLTextAreaElement>(null);
 
 
@@ -314,36 +314,30 @@ export default function Home() {
   };
 
   const handleAddProcedureToQueue = () => {
-    const { commands: procedureCommands, procedureName, error } = generateCommandsFromProcedure(); // Capture procedureName
+    const { commands: procedureCommands, procedureName, error } = generateCommandsFromProcedure(); 
 
     if (error) {
       setResponse(prev => prev + `${String.fromCharCode(10)}Procedure Error: ${error}`);
-      setCurrentProcedureName(undefined); // Clear procedure name on error
+      setCurrentProcedureName(undefined); 
       return;
     }
 
     if (procedureCommands.length === 0 && !procedureText.trim()) {
       setResponse(prev => prev + `${String.fromCharCode(10)}Please enter a procedure to add.`);
-      setCurrentProcedureName(undefined); // Clear procedure name
+      setCurrentProcedureName(undefined); 
       return;
     }
 
     if (procedureCommands.length === 0 && procedureText.trim()) {
       setResponse(prev => prev + `${String.fromCharCode(10)}Procedure not recognized or generated no commands. Supported: SwVin, SwIo, SwPo, SwPoVi, Pout(Is), Pin(Vs).`);
-      setCurrentProcedureName(undefined); // Clear procedure name
+      setCurrentProcedureName(undefined); 
       return;
     }
 
     if (procedureCommands.length > 0) {
-      // If adding to an empty queue, or if a procedure is being added, set/update the procedure name.
-      // If the queue is not empty and this is the first procedure being added, it sets the name.
-      // If subsequent procedures are added, it will update to the latest procedure's name.
       if (commands.length === 0 || procedureName) {
         setCurrentProcedureName(procedureName);
       } else if (!procedureName && commands.length > 0 && currentProcedureName) {
-        // If adding individual commands after a procedure was already in queue,
-        // we might want to clear currentProcedureName or keep the existing one.
-        // For now, let's clear it to indicate a mixed/non-specific procedure plot.
         // setCurrentProcedureName(undefined); // Optional: Or keep currentProcedureName
       }
 
@@ -370,8 +364,8 @@ export default function Home() {
   const handleRemoveAllCommands = () => {
     setCommands([]);
     setCommandResponses([]);
-    setCurrentProcedureName(undefined); // Reset procedure name
-    setIsChartReady(false); // Reset chart ready state
+    setCurrentProcedureName(undefined); 
+    setIsChartReady(false); 
     setResponse(prev => prev + `${String.fromCharCode(10)}Command queue cleared.`);
   };
 
@@ -404,18 +398,18 @@ export default function Home() {
 
 
     setIsBusy(true);
-    setIsChartReady(false); // Set chart not ready before processing
+    setIsChartReady(false); 
     setChartData([]);
     setChartConfig({});
     let tempUpdatedResponses = [...commandResponses];
 
-    // Data collection structures
-    let collectedSwPoData: Record<number, { [viKey: string]: number }> = {}; // For SwPo, SwIo, SwPoVi (x-axis: Po)
-    let collectedSwVinData: Array<{ vin: number; vo?: number; eff?: number }> = []; // For SwVin (x-axis: Vin)
+    
+    let collectedSwPoData: Record<number, { [viKey: string]: number }> = {}; 
+    let collectedSwVinData: Array<{ vin: number; vo?: number; eff?: number }> = []; 
 
-    let uniqueViKeysForSwPo = new Set<string>(); // For SwPo style charts (original uniqueViKeys)
+    let uniqueViKeysForSwPo = new Set<string>(); 
     let lastMeasuredVi: number | undefined = undefined;
-    let lastMeasuredVo: number | undefined = undefined; // Added for SwVin Vo
+    let lastMeasuredVo: number | undefined = undefined; 
 
 
     for (let i = 0; i < commands.length; i++) {
@@ -501,14 +495,14 @@ export default function Home() {
               case 'MEAS:VOLT?':
                 if (parts.length > 0) {
                    tempUpdatedResponses[i * 8 + 4] = parts[0];
-                   lastMeasuredVo = parseFloat(parts[0]); // Capture last measured Vo
+                   lastMeasuredVo = parseFloat(parts[0]); 
                    if(isNaN(lastMeasuredVo)) lastMeasuredVo = undefined;
                 }
                 break;
               case 'MEAS:CURR?':
                 if (parts.length > 0) tempUpdatedResponses[i * 8 + 5] = parts[0];
                 let poVal: number | undefined = undefined;
-                // let effVal: number | undefined = undefined; // effVal is not directly used for assignment later
+                
                 const currentIo = parseFloat(parts[0]);
 
                 if (cmdInfo.meta?.calculatesPo) {
@@ -516,7 +510,7 @@ export default function Home() {
                    if (i > 0 && commands[i-1]?.text === 'MEAS:VOLT?' && commands[i-1]?.targetPort === 'COM6') {
                      prevVoStr = tempUpdatedResponses[(i-1) * 8 + 4];
                    } else {
-                     // Search backwards for the most recent Vo measurement on COM6 if not immediately preceding
+                     
                      for (let k = i - 1; k >= 0; k--) {
                        if (commands[k].text === 'MEAS:VOLT?' && commands[k].targetPort === 'COM6') {
                          prevVoStr = tempUpdatedResponses[k * 8 + 4];
@@ -533,7 +527,7 @@ export default function Home() {
 
                 if (cmdInfo.meta?.calculatesEff && lastMeasuredVi !== undefined) {
                   let piToUseForEff: number | undefined;
-                  // Search backwards for the most recent Pi calculation on COM3 if not immediately preceding
+                  
                   if (i > 0 && commands[i-1]?.text === 'MEAS:CURR?' && commands[i-1]?.targetPort === 'COM3' && commands[i-1]?.meta?.calculatesPi) {
                     piToUseForEff = parseFloat(tempUpdatedResponses[(i-1) * 8 + 3]);
                   } else {
@@ -561,18 +555,18 @@ export default function Home() {
                   }
 
 
-                  // Data collection specific to currentProcedureName
+                  
                   if (currentProcedureName === 'SwVin') {
                     let vinForThisPoint: number | undefined = lastMeasuredVi;
                     let voForThisPoint: number | undefined = lastMeasuredVo;
 
                     if (commands[i-3]?.text === 'MEAS:VOLT?' && commands[i-3]?.targetPort === 'COM3') {
                         const vinStr = tempUpdatedResponses[(i-3) * 8 + 1];
-                        if (vinStr) vinForThisPoint = parseFloat(vinStr); else vinForThisPoint = undefined; // Ensure it becomes undefined if empty
+                        if (vinStr) vinForThisPoint = parseFloat(vinStr); else vinForThisPoint = undefined; 
                     }
                     if (commands[i-2]?.text === 'MEAS:VOLT?' && commands[i-2]?.targetPort === 'COM6') {
                         const voStr = tempUpdatedResponses[(i-2) * 8 + 4];
-                        if (voStr) voForThisPoint = parseFloat(voStr); else voForThisPoint = undefined; // Ensure it becomes undefined if empty
+                        if (voStr) voForThisPoint = parseFloat(voStr); else voForThisPoint = undefined; 
                     }
                     
                     if (vinForThisPoint !== undefined && !isNaN(vinForThisPoint) && currentEffForStep !== undefined) {
@@ -613,8 +607,8 @@ export default function Home() {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Transform and set chart data based on procedure
-    const newChartConfigLocal: ChartConfig = {}; // Use a local var to build config
+    
+    const newChartConfigLocal: ChartConfig = {}; 
     let finalChartData: ChartDataPoint[] = []; 
 
     if (currentProcedureName === 'SwVin') {
@@ -655,7 +649,7 @@ export default function Home() {
     }
 
     setChartData(finalChartData);
-    setChartConfig(newChartConfigLocal); // Set the state with the locally built config
+    setChartConfig(newChartConfigLocal); 
     setIsChartReady(true); 
     setIsBusy(false);
   };
@@ -711,18 +705,18 @@ export default function Home() {
         viMax,
         voNominal,};
         setProcedureText(selectedProc.getTemplate(currentParams));
-        setSelectedProcedureDescription(selectedProc.description); // Update description state
+        setSelectedProcedureDescription(selectedProc.description); 
       } else {
-        setSelectedProcedureDescription(null); // Clear description if no procedure is selected or found
+        setSelectedProcedureDescription(null); 
       }
     };
   
     const handleClientSendEmail = async () => {
        const result = await handleSendEmail();
        if (result) {
-         alert(result.message);
+         alert(result.message); 
          if (result.success) {
-           // User info form fields are reset inside useEmailSender
+           
          }
        } else {
          alert('An unexpected error occurred while preparing to send the email.');
@@ -971,19 +965,21 @@ export default function Home() {
                           domain={[0, 'auto']}
                           tickFormatter={(value) => Number(value).toFixed(3)}
                         />
-                        <YAxis
-                          yAxisId="vo"
-                          orientation="right"
-                          name="Output Voltage (Vo)"
-                          label={{ value: "Output Voltage (Vo) (V)", angle: 90, position: "insideRight" }}
-                          domain={['auto', 'auto']}
-                          tickFormatter={(value) => Number(value).toFixed(2)}
-                          stroke={chartConfig['vo']?.color} 
-                        />
+                        {chartConfig && chartConfig['vo'] && ( // Conditionally render Vo Y-axis only if 'vo' is in chartConfig
+                           <YAxis
+                            yAxisId="vo"
+                            orientation="right"
+                            name="Output Voltage (Vo)"
+                            label={{ value: "Output Voltage (Vo) (V)", angle: 90, position: "insideRight" }}
+                            domain={['auto', 'auto']}
+                            tickFormatter={(value) => Number(value).toFixed(2)}
+                            stroke={chartConfig['vo']?.color} 
+                           />
+                        )}
                       </>
                     ) : (
                       <YAxis
-                        yAxisId="efficiency" // Ensure YAxis has an ID even if it's the only one for non-SwVin
+                        yAxisId="efficiency" 
                         name="Efficiency (Eff)"
                         label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }}
                         domain={[0, 'auto']}
@@ -1075,5 +1071,7 @@ export default function Home() {
     );
   }
   
+
+    
 
     
