@@ -369,6 +369,12 @@ export default function Home() {
     });
   };
 
+  const handleRemoveAllCommands = () => {
+    setCommands([]);
+    setCommandResponses([]);
+    setResponse(prev => prev + `${String.fromCharCode(10)}Command queue cleared.`);
+  };
+
   const handleActivatePort1 = async () => {
     setIsPort1Busy(true);
     await activatePort1({});
@@ -634,17 +640,17 @@ export default function Home() {
   };
 
   const handleClientSendEmail = async () => {
-    const result = await handleSendEmail(); // From useEmailSender hook
+    const result = await handleSendEmail(); 
     if (result) {
-      alert(result.message); // Display the server's response message
+      alert(result.message); 
       if (result.success) {
-        // Optionally reset form fields from useEmailSender if needed here
-        // e.g., by calling a reset function exposed by useEmailSender
+        // User info form fields are reset inside useEmailSender
       }
     } else {
       alert('An unexpected error occurred while preparing to send the email.');
     }
   };
+
 
 
   return (
@@ -783,7 +789,7 @@ export default function Home() {
                   {["Vi", "Ii", "Pi", "Vo", "Io", "Po", "Eff"].map((label, i) => (<TableHead key={`data-header-${i}`} className="w-[80px] sticky top-0 bg-card z-10">{label}</TableHead>))}
                   <TableHead className="min-w-[150px] sticky top-0 bg-card z-10">Command</TableHead>
                   <TableHead className="w-[70px] sticky top-0 bg-card z-10">Port</TableHead>
-                  <TableHead className="w-[90px] sticky top-0 bg-card z-10">Actions</TableHead>
+                  <TableHead className="w-[120px] sticky top-0 bg-card z-10">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -814,14 +820,31 @@ export default function Home() {
                     </TableCell>
                   </TableRow>
                 ))}
+                
               </TableBody>
             </Table>
           </div>
         )}
+        
+        <div className="flex flex-col space-y-2">
+          <Button 
+            onClick={handleSendMultipleCommands} 
+            className="w-full" 
+            disabled={(!isConnected1 && !isConnected2) || isBusy || isPort1Busy || isPort2Busy || commands.length === 0}
+          >
+            {isBusy ? 'Sending Commands...' : 'Send All Commands from Queue'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleRemoveAllCommands}
+            className="w-full"
+            disabled={commands.length === 0 || isBusy || isPort1Busy || isPort2Busy}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Clear Queue
+          </Button>
+        </div>
 
-        <Button onClick={handleSendMultipleCommands} className="w-full" disabled={(!isConnected1 && !isConnected2) || isBusy || isPort1Busy || isPort2Busy || commands.length === 0}>
-          {isBusy ? 'Sending Commands...' : 'Send All Commands from Queue'}
-        </Button>
 
         {chartData.length > 0 && Object.keys(chartConfig).length > 0 && (
           <Card id="efficiency-chart-card" className="w-full mt-4 shadow-sm"> 
