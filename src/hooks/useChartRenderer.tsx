@@ -99,10 +99,10 @@ export const useChartRenderer = ({
           key={configKey}
           type="monotone"
           dataKey={configKey}
-          stroke={seriesConfig.color} // Use color from chartConfig
+          stroke={seriesConfig.color} 
           yAxisId={yAxisIdToUse}
-          name={seriesConfig.label as string || configKey} // Use label from chartConfig
-          dot={false}
+          name={seriesConfig.label as string || configKey} 
+          dot={{ r: 0 }} // Changed from dot={false}
           strokeWidth={2}
         />
       );
@@ -153,5 +153,7 @@ export const useChartRenderer = ({
     triggerChartCapture,
   };
 };
+
+    
 
     
