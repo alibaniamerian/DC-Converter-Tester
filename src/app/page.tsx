@@ -1,3 +1,4 @@
+
 "use client";
 /// <reference lib="dom" />
 
@@ -17,7 +18,8 @@ import { useEmailSender } from '../hooks/useEmailSender';
 import { useDeviceParametersAndModel } from '../hooks/useDeviceParametersAndModel';
 import { useCommandExecutor, type QueuedCommand, type ChartDataPoint } from '../hooks/useCommandExecutor';
 import { useCommandQueueManager } from '../hooks/useCommandQueueManager';
-import { useChartRenderer } from '../hooks/useChartRenderer'; 
+import { useChartRenderer, type ChartConfig as PageChartConfig } from '../hooks/useChartRenderer.tsx';
+
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -28,26 +30,18 @@ interface DeviceProcedureParams {
   voNominal: string;
 }
 
-const procedureListItems = [ 
+const procedureListItems = [
   {
     value: 'SwVin',
     label: 'SwVin(Vs1, Vs2, Nsw)',
-    description: `Sweeps the input voltage (Vin) and takes measurements.
-Parameters:
-  Vs1: Starting input voltage (V). Defaults to Vi(min).
-  Vs2: Ending input voltage (V). Defaults to Vi(max).
-  Nsw: Number of sweep steps (2-20). Defaults to 2.`,
+    description: `Sweeps the input voltage (Vin) and takes measurements.\nParameters:\n  Vs1: Starting input voltage (V). Defaults to Vi(min).\n  Vs2: Ending input voltage (V). Defaults to Vi(max).\n  Nsw: Number of sweep steps (2-20). Defaults to 2.`,
     getTemplate: (params: Partial<DeviceProcedureParams>) =>
       `SwVin(${params.viMin || ''}, ${params.viMax || ''}, )`,
   },
   {
     value: 'SwIo',
     label: 'SwIo(Is1, Is2, Nsw)',
-    description: `Sweeps the output current (Io) and takes measurements.
-Parameters:
-  Is1: Starting output current (A). Defaults to 0.
-  Is2: Ending output current (A). Defaults to (Nominal Power / Vo (Nominal)).
-  Nsw: Number of sweep steps (2-20). Defaults to 2.`,
+    description: `Sweeps the output current (Io) and takes measurements.\nParameters:\n  Is1: Starting output current (A). Defaults to 0.\n  Is2: Ending output current (A). Defaults to (Nominal Power / Vo (Nominal)).\n  Nsw: Number of sweep steps (2-20). Defaults to 2.`,
     getTemplate: (params: Partial<DeviceProcedureParams>) => {
       const nomP = parseFloat(params.nominalPower || '');
       const voN = parseFloat(params.voNominal || '');
@@ -57,21 +51,10 @@ Parameters:
       return `SwIo(, ${defaultIs2}, )`;
     },
   },
-  { value: 'Pout', label: 'Pout(Is)', description: `Sets an optional output current Is, measures Vo & Io, then calculates Po.
-Parameters:
-  Is: Target output current (A) (optional).`, getTemplate: () => `Pout()`, },
-  { value: 'Pin', label: 'Pin(Vs)', description: `Sets an optional input voltage Vs, measures Vi & Ii, then calculates Pi.
-Parameters:
-  Vs: Target input voltage (V) (optional, must be within Vi(min)/Vi(max)).`, getTemplate: () => `Pin()`, },
-  { value: 'SwPo', label: 'SwPo(Ps1, Ps2, Nsw)', description: `Sweeps output power (Po). Calculates required Io based on Vo (Nominal).
-Parameters:
-  Ps1: Starting output power (W). Defaults to 0.
-  Ps2: Ending output power (W). Defaults to Nominal Power.
-  Nsw: Number of sweep steps (2-20). Defaults to 2.`, getTemplate: (params: Partial<DeviceProcedureParams>) => `SwPo(, ${params.nominalPower || ''}, )`, },
-  { value: 'SwPoVi', label: 'SwPoVi(Ps1, Ps2, Nsw, Vs1, Vs2, Nswv)', description: `Sweeps Po across a range of Vi. For each Vi step, performs a full SwPo sweep.
-Parameters:
-  Ps1, Ps2, Nsw: For inner SwPo sweep (defaults similar to SwPo).
-  Vs1, Vs2, Nswv: For outer Vi sweep (defaults similar to SwVin for Vs1/Vs2).`, getTemplate: (params: Partial<DeviceProcedureParams>) => `SwPoVi(, ${params.nominalPower || ''}, , ${params.viMin || ''}, ${params.viMax || ''}, )`, },
+  { value: 'Pout', label: 'Pout(Is)', description: `Sets an optional output current Is, measures Vo & Io, then calculates Po.\nParameters:\n  Is: Target output current (A) (optional).`, getTemplate: () => `Pout()`, },
+  { value: 'Pin', label: 'Pin(Vs)', description: `Sets an optional input voltage Vs, measures Vi & Ii, then calculates Pi.\nParameters:\n  Vs: Target input voltage (V) (optional, must be within Vi(min)/Vi(max)).`, getTemplate: () => `Pin()`, },
+  { value: 'SwPo', label: 'SwPo(Ps1, Ps2, Nsw)', description: `Sweeps output power (Po). Calculates required Io based on Vo (Nominal).\nParameters:\n  Ps1: Starting output power (W). Defaults to 0.\n  Ps2: Ending output power (W). Defaults to Nominal Power.\n  Nsw: Number of sweep steps (2-20). Defaults to 2.`, getTemplate: (params: Partial<DeviceProcedureParams>) => `SwPo(, ${params.nominalPower || ''}, )`, },
+  { value: 'SwPoVi', label: 'SwPoVi(Ps1, Ps2, Nsw, Vs1, Vs2, Nswv)', description: `Sweeps Po across a range of Vi. For each Vi step, performs a full SwPo sweep.\nParameters:\n  Ps1, Ps2, Nsw: For inner SwPo sweep (defaults similar to SwPo).\n  Vs1, Vs2, Nswv: For outer Vi sweep (defaults similar to SwVin for Vs1/Vs2).`, getTemplate: (params: Partial<DeviceProcedureParams>) => `SwPoVi(, ${params.nominalPower || ''}, , ${params.viMin || ''}, ${params.viMax || ''}, )`, },
 ];
 async function sendAndRead(
   port: SerialPort | null,
@@ -113,14 +96,12 @@ async function sendAndRead(
 }
 
 export default function Home() {
-  const [response, setResponse] = useState('');
-  const [isBusy, setIsBusy] = useState(false);
+ const [response, setResponse] = React.useState('');
+ const [isBusy, setIsBusy] = React.useState(false);
   const [isPort1Busy, setIsPort1Busy] = useState(false);
   const [isPort2Busy, setIsPort2Busy] = useState(false);
   const responseLogRef = useRef<HTMLTextAreaElement>(null);
   const [currentProcedureNameForExecutor, setCurrentProcedureNameForExecutor] = useState<string | undefined>(undefined);
-
-  // Chart states (chartData, chartConfig, isChartReady) are now managed by useChartRenderer
 
   const {
     nominalPower, setNominalPower, viMin, setViMin, viMax, setViMax, voNominal, setVoNominal,
@@ -138,37 +119,52 @@ export default function Home() {
   } = useEmailSender({ deviceModel: converterModel, nominalPower, viMin, viMax, voNominal });
 
   const { port1, isConnected1, activatePort1, port2, isConnected2, activatePort2 } = useComPort({
-    setIsBusy, setResponse, sendAndRead,
+    setIsBusy, setResponse, sendAndRead, setCommandResponses: () => {},
   });
 
   const [tempProcedureInput, setTempProcedureInput] = useState('');
-  const { generateCommandsFromProcedure } = useProcedure(viMin, viMax, nominalPower, tempProcedureInput);
+  const { generateCommandsFromProcedure } = useProcedure(viMin, viMax, nominalPower, voNominal);
 
+  // Initialize useCommandQueueManager first as it provides `procedureInput`
   const {
-    commandInput, setCommandInput, procedureInput, setProcedureInput,
-    selectedPort, setSelectedPort, selectedProcedureDescription,
-    commands, commandResponses,
-    addCommandToQueue, addProcedureToQueue, removeCommandFromQueue, clearCommandQueue, handleProcedureSelection,
-    setCommands: setCommandsFromQueueManager, // Renamed to avoid conflict if needed
-    setCommandResponses: setCommandResponsesFromQueueManager, // Renamed for clarity
+    commandInput, setCommandInput, procedureInput, setProcedureInput, selectedPort, setSelectedPort, selectedProcedureDescription, commands, commandResponses,
+    addCommandToQueue, addProcedureToQueue, removeCommandFromQueue, 
+    clearCommandQueue: clearCommandQueueFromManager, // Rename to avoid conflict
+    handleProcedureSelection,
+    setCommands: setCommandsFromQueueManager, setCommandResponses: setCommandResponsesFromQueueManager,
   } = useCommandQueueManager({
     procedureListItems,
     deviceParams,
     generateCommandsFromProcedure,
     setPageResponse: setResponse,
-    setPageIsChartReady: () => {}, // Placeholder, as ChartRenderer now handles this
+    // setPageIsChartReady is removed from here
     setPageCurrentProcedureName: setCurrentProcedureNameForExecutor,
   });
+  
+  // Now initialize useChartRenderer, it can use `procedureInput`
+  const {
+    setChartData,
+    setChartConfig,
+    setIsChartReady, // setIsChartReady is defined here
+    ChartDisplayComponent,
+    triggerChartCapture,
+  } = useChartRenderer({
+    currentProcedureName: currentProcedureNameForExecutor,
+    converterModelForFilename: converterModel,
+    procedureInputForFilename: procedureInput, // Now procedureInput is available
+    showEmailFormHandler: handleShowUserInfoForm,
+    logUpdater: setResponse,
+  });
+
+  // Wrapper for clearCommandQueue to also manage setIsChartReady
+  const clearCommandQueue = () => {
+    clearCommandQueueFromManager();
+    setIsChartReady(false); // Call setIsChartReady from useChartRenderer
+  };
 
   useEffect(() => {
     setTempProcedureInput(procedureInput);
   }, [procedureInput]);
-
-  // Chart Renderer Hook Call (Minimal for debugging)
-  const { ChartDisplayComponent } = useChartRenderer();
-  // Note: The full useChartRenderer would also return setChartData, setChartConfig, setIsChartReady, triggerChartCapture
-  // and take props like currentProcedureName, converterModelForFilename etc.
-  // For this minimal test, we only use ChartDisplayComponent.
 
   const { isExecuting, executeAllCommands } = useCommandExecutor({
     commands,
@@ -178,9 +174,9 @@ export default function Home() {
     sendAndRead,
     setPageResponse: setResponse,
     setCommandResponsesInPage: setCommandResponsesFromQueueManager,
-    setChartDataInPage: () => {}, // Placeholder for minimal test
-    setChartConfigInPage: () => {}, // Placeholder for minimal test
-    setIsChartReadyInPage: () => {}, // Placeholder for minimal test
+    setChartDataInPage: setChartData,
+    setChartConfigInPage: setChartConfig,
+    setIsChartReadyInPage: setIsChartReady,
     setIsBusyInPage: setIsBusy,
   });
 
@@ -190,7 +186,6 @@ export default function Home() {
     }
   }, [response]);
 
-  // handleCaptureChart is removed (now inside useChartRenderer or not used with minimal hook)
 
   const handleActivatePort1 = async () => {
     setIsPort1Busy(true);
@@ -206,19 +201,16 @@ export default function Home() {
 
   const handleClientSendEmail = async () => {
      const result = await handleSendEmail();
-     if (result) { alert(result.message); }
-     else { alert('An unexpected error occurred while preparing to send the email.'); }
+     alert(result.message);
   };
-
-  // chartLines definition is removed (now inside useChartRenderer or not used with minimal hook)
   
   return (
     <div className="flex flex-col items-center justify-start min-h-screen p-8 w-full">
-      <h1 className="text-2xl font-bold mb-4">DC Converter Tester V0.4 (Minimal Chart Test)</h1>
+      <h1 className="text-2xl font-bold mb-4">DC Converter Tester V0.4</h1>
 
       <div className="w-full max-w-[80rem] space-y-4">
         <div className="w-full p-4 border rounded-md shadow-sm">
-          <Label htmlFor="converterModel">Converter Model</Label>
+          <Label htmlFor="converterModel" className="block text-sm font-medium text-foreground mb-1">Converter Model</Label>
           <div className="flex items-center gap-2">
              <Input
                 id="converterModel"
@@ -254,34 +246,34 @@ export default function Home() {
           </div>
         </div>
         <div className="w-full p-4 border rounded-md shadow-sm">
-          <h2 className="text-lg font-semibold mb-3">Device Parameters</h2>
+          <h2 className="text-lg font-semibold mb-3 text-foreground">Device Parameters</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
             <div>
-              <Label htmlFor="nominalPower">Nominal Power (W)</Label>
+              <Label htmlFor="nominalPower" className="block text-sm font-medium text-foreground mb-1">Nominal Power (W)</Label>
               <Input id="nominalPower" type="number" placeholder="e.g., 100"
                 value={nominalPower} onChange={(e) => setNominalPower(e.target.value)}
                 disabled={isBusy || isExecuting} className="w-full"/>
             </div>
             <div>
-              <Label htmlFor="viMin">Vi (min) (V)</Label>
+              <Label htmlFor="viMin" className="block text-sm font-medium text-foreground mb-1">Vi (min) (V)</Label>
               <Input id="viMin" type="number" placeholder="e.g., 9"
                 value={viMin} onChange={(e) => setViMin(e.target.value)}
                 disabled={isBusy || isExecuting} className="w-full"/>
             </div>
             <div>
-              <Label htmlFor="viMax">Vi (Max) (V)</Label>
+              <Label htmlFor="viMax" className="block text-sm font-medium text-foreground mb-1">Vi (Max) (V)</Label>
               <Input id="viMax" type="number" placeholder="e.g., 36"
                 value={viMax} onChange={(e) => setViMax(e.target.value)}
                 disabled={isBusy || isExecuting} className="w-full"/>
             </div>
             <div>
-              <Label htmlFor="voNominal">Vo (Nominal) (V)</Label>
+              <Label htmlFor="voNominal" className="block text-sm font-medium text-foreground mb-1">Vo (Nominal) (V)</Label>
               <Input id="voNominal" type="number" placeholder="e.g., 12"
                 value={voNominal} onChange={(e) => setVoNominal(e.target.value)}
                 disabled={isBusy || isExecuting} className="w-full"/>
             </div>
             <div>
-              <Label htmlFor="userTimeout">Cmd Timeout (ms)</Label>
+              <Label htmlFor="userTimeout" className="block text-sm font-medium text-foreground mb-1">Cmd Timeout (ms)</Label>
               <Input id="userTimeout" type="number" placeholder="e.g., 1000"
                 value={userTimeout} onChange={(e) => setUserTimeout(e.target.value)}
                 disabled={isBusy || isExecuting} className="w-full"/>
@@ -291,7 +283,7 @@ export default function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="p-4 border rounded-md shadow-sm">
-            <Label htmlFor="procedure">Enter Procedure:</Label>
+            <Label htmlFor="procedure" className="block text-sm font-medium text-foreground mb-1">Enter Procedure:</Label>
             <div className="flex items-center gap-2 mt-1">
               <Input
                 id="procedure"
@@ -316,14 +308,14 @@ export default function Home() {
             </Button>
             {selectedProcedureDescription && (
               <div className="mt-3 p-3 border rounded-md bg-muted/50 text-sm">
-                <h4 className="font-semibold mb-1">Procedure Details:</h4>
+                <h4 className="font-semibold mb-1 text-foreground">Procedure Details:</h4>
                 <pre className="whitespace-pre-wrap font-sans text-muted-foreground">{selectedProcedureDescription}</pre>
               </div>
             )}
           </div>
 
           <div className="p-4 border rounded-md shadow-sm">
-            <Label htmlFor="command">Enter Command:</Label>
+            <Label htmlFor="command" className="block text-sm font-medium text-foreground">Enter Command:</Label>
             <div className="flex items-center space-x-2 mt-1">
               <Input
                 id="command"
@@ -403,7 +395,7 @@ export default function Home() {
           </Button>
           <Button
             variant="outline"
-            onClick={clearCommandQueue}
+            onClick={clearCommandQueue} // Updated to use the wrapper
             className="w-full"
             disabled={commands.length === 0 || isBusy || isExecuting || isPort1Busy || isPort2Busy}
           >
@@ -412,7 +404,6 @@ export default function Home() {
           </Button>
         </div>
         
-        {/* Chart Display - Now rendered by the minimal useChartRenderer's component */}
         <ChartDisplayComponent />
 
         {showUserInfoForm && (
@@ -460,7 +451,7 @@ export default function Home() {
         </div>
 
         <div>
-          <Label htmlFor="response">Response Log:</Label>
+          <Label htmlFor="response" className="block text-sm font-medium text-foreground">Response Log:</Label>
           <Textarea
             ref={responseLogRef}
             id="response"

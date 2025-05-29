@@ -23,36 +23,27 @@ interface ProcedureListItem {
 interface UseCommandQueueManagerProps {
   procedureListItems: ProcedureListItem[];
   deviceParams: DeviceProcedureParams; // Use the full DeviceProcedureParams
-  // generateCommandsFromProcedure will be derived from useProcedure inside page.tsx and passed in
   generateCommandsFromProcedure: () => { commands: QueuedCommand[]; procedureName?: string; error?: string };
   setPageResponse: React.Dispatch<React.SetStateAction<string>>; // For logging to main page response
-  setPageIsChartReady?: React.Dispatch<React.SetStateAction<boolean>>; // Optional: if queue clearing affects this
-  // Callback to update the current procedure name at the page level, used by useCommandExecutor
+  // setPageIsChartReady is removed as a prop
   setPageCurrentProcedureName: React.Dispatch<React.SetStateAction<string | undefined>>;
 }
 
 export interface UseCommandQueueManagerReturn {
-  // States for UI binding
   commandInput: string;
   setCommandInput: React.Dispatch<React.SetStateAction<string>>;
   procedureInput: string; 
-  setProcedureInput: React.Dispatch<React.SetStateAction<string>>; // Renamed from procedureText for clarity
+  setProcedureInput: React.Dispatch<React.SetStateAction<string>>;
   selectedPort: 'COM3' | 'COM6';
   setSelectedPort: React.Dispatch<React.SetStateAction<'COM3' | 'COM6'>>;
   selectedProcedureDescription: string | null;
-
-  // States to be passed to other hooks or used in JSX
   commands: QueuedCommand[];
   commandResponses: string[];
-  
-  // Handler functions
   addCommandToQueue: () => void;
   addProcedureToQueue: () => void;
   removeCommandFromQueue: (indexToRemove: number) => void;
-  clearCommandQueue: () => void;
-  handleProcedureSelection: (value: string) => void; // Renamed for clarity
-
-  // Expose setters for commands and responses if needed by useCommandExecutor for initialization
+  clearCommandQueue: () => void; // This will be the function from the hook
+  handleProcedureSelection: (value: string) => void;
   setCommands: React.Dispatch<React.SetStateAction<QueuedCommand[]>>;
   setCommandResponses: React.Dispatch<React.SetStateAction<string[]>>;
 }
@@ -62,7 +53,6 @@ export const useCommandQueueManager = ({
   deviceParams,
   generateCommandsFromProcedure,
   setPageResponse,
-  setPageIsChartReady,
   setPageCurrentProcedureName,
 }: UseCommandQueueManagerProps): UseCommandQueueManagerReturn => {
   const [commandInput, setCommandInput] = useState('');
@@ -109,7 +99,7 @@ export const useCommandQueueManager = ({
       }
       setCommands(prev => [...prev, ...procedureCommandsGenerated]);
       setCommandResponses(prev => [...prev, ...Array(procedureCommandsGenerated.length * 8).fill('')]);
-      setProcedureInput(''); // Clear input after adding
+      setProcedureInput(''); 
       setSelectedProcedureDescription(null);
     }
   }, [generateCommandsFromProcedure, procedureInput, commands.length, setPageResponse, setPageCurrentProcedureName]);
@@ -127,9 +117,9 @@ export const useCommandQueueManager = ({
     setCommands([]);
     setCommandResponses([]);
     setPageCurrentProcedureName(undefined);
-    if(setPageIsChartReady) setPageIsChartReady(false);
+    // if(setPageIsChartReady) setPageIsChartReady(false); // Removed from here
     setPageResponse(prev => prev + `${String.fromCharCode(10)}Command queue cleared.`);
-  }, [setPageResponse, setPageIsChartReady, setPageCurrentProcedureName]);
+  }, [setPageResponse, setPageCurrentProcedureName]);
 
   const handleProcedureSelection = useCallback((value: string) => {
     const selectedProc = procedureListItems.find(p => p.value === value);
@@ -139,7 +129,7 @@ export const useCommandQueueManager = ({
     } else {
       setSelectedProcedureDescription(null);
     }
-  }, [procedureListItems, deviceParams]); // deviceParams must be stable or memoized if passed from page
+  }, [procedureListItems, deviceParams]);
 
   return {
     commandInput, setCommandInput,
@@ -151,9 +141,9 @@ export const useCommandQueueManager = ({
     addCommandToQueue,
     addProcedureToQueue,
     removeCommandFromQueue,
-    clearCommandQueue,
+    clearCommandQueue, // This is the hook's own clear function
     handleProcedureSelection,
-    setCommands, // Exporting for useCommandExecutor if needed
-    setCommandResponses, // Exporting for useCommandExecutor
+    setCommands, 
+    setCommandResponses, 
   };
 };
