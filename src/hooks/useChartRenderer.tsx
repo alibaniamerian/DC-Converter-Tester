@@ -6,11 +6,11 @@ import html2canvas from 'html2canvas';
 import { Button } from "@/components/ui/button";
 import {
   LineChart,
-  Line, 
+  Line,
   CartesianGrid,
   XAxis,
   YAxis,
-  Tooltip as RechartsTooltip,
+  Tooltip as RechartsTooltip, // Keep this alias if ChartTooltip from ui/chart is different
 } from 'recharts';
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle
@@ -20,15 +20,13 @@ import {
   type ChartConfig as PageChartConfig,
 } from "@/components/ui/chart";
 
-export interface ChartDataPoint { 
-  x: number; 
-  [key: string]: number | undefined; 
+export interface ChartDataPoint {
+  x: number;
+  [key: string]: number | undefined;
 }
 
-// const lineColors = [...] // Not used
-
 interface UseChartRendererProps {
-  currentProcedureName?: string; 
+  currentProcedureName?: string;
   converterModelForFilename?: string;
   procedureInputForFilename?: string;
   showEmailFormHandler?: (imageBase64: string) => void;
@@ -42,8 +40,8 @@ export interface UseChartRendererReturn {
   setChartConfig: React.Dispatch<React.SetStateAction<PageChartConfig>>;
   isChartReady: boolean;
   setIsChartReady: React.Dispatch<React.SetStateAction<boolean>>;
-  ChartDisplayComponent: () => JSX.Element | null; 
-  triggerChartCapture: () => Promise<void>; 
+  ChartDisplayComponent: () => JSX.Element | null;
+  triggerChartCapture: () => Promise<void>;
 }
 
 export const useChartRenderer = ({
@@ -58,7 +56,7 @@ export const useChartRenderer = ({
   const [isChartReady, setIsChartReady] = useState(false);
 
   const triggerChartCapture = useCallback(async () => {
-    const chartElement = document.getElementById('efficiency-chart-card-from-hook'); 
+    const chartElement = document.getElementById('efficiency-chart-card-from-hook');
     if (!chartElement) {
       logUpdater?.((prev: string) => prev + `${String.fromCharCode(10)}Error: Chart element (from hook) not found.`);
       return;
@@ -83,7 +81,6 @@ export const useChartRenderer = ({
     }
   }, [converterModelForFilename, procedureInputForFilename, showEmailFormHandler, logUpdater]);
 
-  // EXTREMELY SIMPLIFIED chartLines
   const chartLines = useMemo(() => {
     if (!isChartReady || !chartConfig || typeof chartConfig !== 'object') {
       return null;
@@ -93,9 +90,24 @@ export const useChartRenderer = ({
       return null;
     }
     return keys.map((configKey) => {
-      return <div key={configKey}>Test</div>; // Simplest possible JSX content
+      const seriesConfig = chartConfig[configKey];
+      if (!seriesConfig) return null; // Should not happen if keys are from chartConfig
+
+      const yAxisIdToUse = currentProcedureName === 'SwVin' && configKey === 'vo' ? 'vo' : 'efficiency';
+      return (
+        <Line
+          key={configKey}
+          type="monotone"
+          dataKey={configKey}
+          stroke={seriesConfig.color} // Use color from chartConfig
+          yAxisId={yAxisIdToUse}
+          name={seriesConfig.label as string || configKey} // Use label from chartConfig
+          dot={false}
+          strokeWidth={2}
+        />
+      );
     });
-  }, [isChartReady, chartConfig]);
+  }, [isChartReady, chartConfig, currentProcedureName]);
 
   const ChartDisplayComponent = useCallback(() => {
     if (!isChartReady || chartData.length === 0 || Object.keys(chartConfig).length === 0) {
@@ -124,7 +136,7 @@ export const useChartRenderer = ({
                 <YAxis yAxisId="efficiency" name="Efficiency (Eff)" label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }} domain={[0, 'auto']} tickFormatter={(value) => Number(value).toFixed(3)} />
               )}
               <ChartTooltip cursor={true} content={<ChartTooltipContent labelFormatter={(value, payload) => currentProcedureName === 'SwVin' ? `Vin: ${Number(payload?.[0]?.payload?.x || value).toFixed(2)} V` : `Po: ${Number(payload?.[0]?.payload?.x || value).toFixed(2)} W`} formatter={(value, name, props) => { const label = (chartConfig as any)[name as string]?.label || name; return [(value as number).toFixed(currentProcedureName === 'SwVin' && name === 'vo' ? 2 : 3), label]; }} />} />
-              {chartLines} 
+              {chartLines}
               <ChartLegend content={<ChartLegendContent />} layout="vertical" verticalAlign="middle" align="right" />
             </LineChart>
           </ChartContainer>
@@ -141,3 +153,5 @@ export const useChartRenderer = ({
     triggerChartCapture,
   };
 };
+
+    
