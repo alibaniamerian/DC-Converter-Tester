@@ -91,12 +91,23 @@ export const useChartRenderer = ({
       const seriesConfig = chartConfig[configKey];
       if (!seriesConfig || !seriesConfig.color) return null; 
 
-      const yAxisIdToUse = (currentProcedureName === 'SwVin' && configKey === 'vo') ? 'vo' : 'efficiency';
+      let yAxisIdToUse = 'efficiency'; // Default to efficiency axis
+
+      // Determine yAxisId based on currentProcedureName and configKey
+      if (currentProcedureName === 'SwVin' && configKey === 'vo') {
+        // For SwVin, if the 'vo' series is being plotted, and the 'vo' Y-axis is configured to render, target 'vo' axis.
+         if (chartConfig?.['vo']?.color) { // Check if 'vo' axis would be rendered
+            yAxisIdToUse = 'vo';
+        }
+      }
+      // For all other cases (not SwVin, or SwVin but not 'vo' series), it defaults to 'efficiency'.
+      // This ensures that if SwPoVi or other procedures are run, all lines target the 'efficiency' axis,
+      // which is the only one rendered for those procedures.
 
       return (
         <Line
           key={configKey}
-          yAxisId={yAxisIdToUse} // Assign the correct yAxisId
+          yAxisId={yAxisIdToUse} 
           type="monotone"
           dataKey={configKey}
           stroke={seriesConfig.color} 
@@ -105,13 +116,17 @@ export const useChartRenderer = ({
           // Removed dot prop to use Recharts default (dots and lines)
         />
       );
-    });
+    }).filter(Boolean); // Filter out any nulls returned if a seriesConfig was invalid
   }, [isChartReady, chartConfig, currentProcedureName]);
 
   const ChartDisplayComponent = useCallback(() => {
     if (!isChartReady || chartData.length === 0 || Object.keys(chartConfig).length === 0) {
       return null;
     }
+    
+    // Determine if the 'vo' Y-axis should be rendered
+    const shouldRenderVoAxis = currentProcedureName === 'SwVin' && chartConfig?.['vo']?.color;
+
     return (
       <Card id="efficiency-chart-card-from-hook" className="w-full mt-4 shadow-sm">
         <div className="flex justify-end p-2">
@@ -126,14 +141,26 @@ export const useChartRenderer = ({
             <LineChart data={chartData} margin={{ top: 5, right: currentProcedureName === 'SwVin' ? 130 : 100, left: 0, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="x" type="number" name={currentProcedureName === 'SwVin' ? 'Input Voltage (Vin)' : 'Output Power (Po)'} label={{ value: currentProcedureName === 'SwVin' ? 'Input Voltage (Vin) (V)' : 'Output Power (Po) (W)', position: "insideBottom", offset: -15 }} domain={['auto', 'auto']} tickFormatter={(value) => Number(value).toFixed(1)} allowDuplicatedCategory={false} />
-              {currentProcedureName === 'SwVin' ? (
-                <>
-                  <YAxis yAxisId="efficiency" name="Efficiency" label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }} domain={[0, 'auto']} tickFormatter={(value) => Number(value).toFixed(3)} />
-                  {chartConfig && (chartConfig as any)['vo'] && (<YAxis yAxisId="vo" orientation="right" name="Output Voltage (Vo)" label={{ value: "Output Voltage (Vo) (V)", angle: 90, position: "insideRight" }} domain={['auto', 'auto']} tickFormatter={(value) => Number(value).toFixed(2)} stroke={(chartConfig as any)['vo']?.color} /> )}
-                </>
-              ) : (
-                <YAxis yAxisId="efficiency" name="Efficiency (Eff)" label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }} domain={[0, 'auto']} tickFormatter={(value) => Number(value).toFixed(3)} />
+              
+              <YAxis 
+                yAxisId="efficiency" 
+                name="Efficiency" 
+                label={{ value: "Efficiency (Eff)", angle: -90, position: "insideLeft" }} 
+                domain={[0, 'auto']} 
+                tickFormatter={(value) => Number(value).toFixed(3)} 
+              />
+              {shouldRenderVoAxis && (
+                <YAxis 
+                  yAxisId="vo" 
+                  orientation="right" 
+                  name="Output Voltage (Vo)" 
+                  label={{ value: "Output Voltage (Vo) (V)", angle: 90, position: "insideRight" }} 
+                  domain={['auto', 'auto']} 
+                  tickFormatter={(value) => Number(value).toFixed(2)} 
+                  stroke={(chartConfig as any)['vo']?.color} 
+                /> 
               )}
+              
               <ChartTooltip cursor={true} content={<ChartTooltipContent labelFormatter={(value, payload) => currentProcedureName === 'SwVin' ? `Vin: ${Number(payload?.[0]?.payload?.x || value).toFixed(2)} V` : `Po: ${Number(payload?.[0]?.payload?.x || value).toFixed(2)} W`} formatter={(value, name, props) => { const label = (chartConfig as any)[name as string]?.label || name; return [(value as number).toFixed(currentProcedureName === 'SwVin' && name === 'vo' ? 2 : 3), label]; }} />} />
               {chartLines}
               <ChartLegend content={<ChartLegendContent />} layout="vertical" verticalAlign="middle" align="right" />
