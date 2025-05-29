@@ -23,16 +23,15 @@ interface ProcedureListItem {
 interface UseCommandQueueManagerProps {
   procedureListItems: ProcedureListItem[];
   deviceParams: DeviceProcedureParams; // Use the full DeviceProcedureParams
-  generateCommandsFromProcedure: () => { commands: QueuedCommand[]; procedureName?: string; error?: string };
+  generateCommandsFromProcedure: (procTextToParse: string) => { commands: QueuedCommand[]; procedureName?: string; error?: string }; // Updated signature
   setPageResponse: React.Dispatch<React.SetStateAction<string>>; // For logging to main page response
-  // setPageIsChartReady is removed as a prop
   setPageCurrentProcedureName: React.Dispatch<React.SetStateAction<string | undefined>>;
 }
 
 export interface UseCommandQueueManagerReturn {
   commandInput: string;
   setCommandInput: React.Dispatch<React.SetStateAction<string>>;
-  procedureInput: string; 
+  procedureInput: string;
   setProcedureInput: React.Dispatch<React.SetStateAction<string>>;
   selectedPort: 'COM3' | 'COM6';
   setSelectedPort: React.Dispatch<React.SetStateAction<'COM3' | 'COM6'>>;
@@ -56,7 +55,7 @@ export const useCommandQueueManager = ({
   setPageCurrentProcedureName,
 }: UseCommandQueueManagerProps): UseCommandQueueManagerReturn => {
   const [commandInput, setCommandInput] = useState('');
-  const [procedureInput, setProcedureInput] = useState('');
+  const [procedureInput, setProcedureInput] = useState(''); // This is the source of truth for the procedure string
   const [selectedPort, setSelectedPort] = useState<'COM3' | 'COM6'>('COM3');
   const [selectedProcedureDescription, setSelectedProcedureDescription] = useState<string | null>(null);
 
@@ -75,7 +74,8 @@ export const useCommandQueueManager = ({
   }, [commandInput, selectedPort, setPageResponse]);
 
   const addProcedureToQueue = useCallback(() => {
-    const { commands: procedureCommandsGenerated, procedureName, error } = generateCommandsFromProcedure();
+    // Pass the current procedureInput from this hook's state
+    const { commands: procedureCommandsGenerated, procedureName, error } = generateCommandsFromProcedure(procedureInput);
 
     if (error) {
       setPageResponse(prev => prev + `${String.fromCharCode(10)}Procedure Error: ${error}`);
@@ -88,7 +88,7 @@ export const useCommandQueueManager = ({
       return;
     }
     if (procedureCommandsGenerated.length === 0 && procedureInput.trim()) {
-      setPageResponse(prev => prev + `${String.fromCharCode(10)}Procedure not recognized or generated no commands.`);
+      setPageResponse(prev => prev + `${String.fromCharCode(10)}Procedure not recognized or generated no commands: "${procedureInput}"`);
       setPageCurrentProcedureName(undefined);
       return;
     }
@@ -99,8 +99,8 @@ export const useCommandQueueManager = ({
       }
       setCommands(prev => [...prev, ...procedureCommandsGenerated]);
       setCommandResponses(prev => [...prev, ...Array(procedureCommandsGenerated.length * 8).fill('')]);
-      setProcedureInput(''); 
-      setSelectedProcedureDescription(null);
+      // setProcedureInput(''); // Keep the input for review, or clear if preferred. Let's keep for now.
+      // setSelectedProcedureDescription(null); // Keep description if input is kept.
     }
   }, [generateCommandsFromProcedure, procedureInput, commands.length, setPageResponse, setPageCurrentProcedureName]);
 
@@ -117,7 +117,6 @@ export const useCommandQueueManager = ({
     setCommands([]);
     setCommandResponses([]);
     setPageCurrentProcedureName(undefined);
-    // if(setPageIsChartReady) setPageIsChartReady(false); // Removed from here
     setPageResponse(prev => prev + `${String.fromCharCode(10)}Command queue cleared.`);
   }, [setPageResponse, setPageCurrentProcedureName]);
 
@@ -141,9 +140,9 @@ export const useCommandQueueManager = ({
     addCommandToQueue,
     addProcedureToQueue,
     removeCommandFromQueue,
-    clearCommandQueue, // This is the hook's own clear function
+    clearCommandQueue,
     handleProcedureSelection,
-    setCommands, 
-    setCommandResponses, 
+    setCommands,
+    setCommandResponses,
   };
 };

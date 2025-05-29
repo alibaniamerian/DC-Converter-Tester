@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 
 // Hooks
 import { useComPort } from '../hooks/useComPort';
-import { useProcedure } from '../hooks/useProcedure';
+import { useProcedure } from '../hooks/useProcedure.tsx'; // Ensure .tsx if it contains JSX or for consistency
 import { useEmailSender } from '../hooks/useEmailSender';
 import { useDeviceParametersAndModel } from '../hooks/useDeviceParametersAndModel';
 import { useCommandExecutor, type QueuedCommand, type ChartDataPoint } from '../hooks/useCommandExecutor';
@@ -122,49 +122,44 @@ export default function Home() {
     setIsBusy, setResponse, sendAndRead, setCommandResponses: () => {},
   });
 
-  const [tempProcedureInput, setTempProcedureInput] = useState('');
+  // useProcedure hook is instantiated with default parameter values
   const { generateCommandsFromProcedure } = useProcedure(viMin, viMax, nominalPower, voNominal);
 
-  // Initialize useCommandQueueManager first as it provides `procedureInput`
+  // Initialize useCommandQueueManager, passing the configured generateCommandsFromProcedure
   const {
     commandInput, setCommandInput, procedureInput, setProcedureInput, selectedPort, setSelectedPort, selectedProcedureDescription, commands, commandResponses,
-    addCommandToQueue, addProcedureToQueue, removeCommandFromQueue, 
-    clearCommandQueue: clearCommandQueueFromManager, // Rename to avoid conflict
+    addCommandToQueue, addProcedureToQueue, removeCommandFromQueue,
+    clearCommandQueue: clearCommandQueueFromManager,
     handleProcedureSelection,
     setCommands: setCommandsFromQueueManager, setCommandResponses: setCommandResponsesFromQueueManager,
   } = useCommandQueueManager({
     procedureListItems,
     deviceParams,
-    generateCommandsFromProcedure,
+    generateCommandsFromProcedure, // generateCommandsFromProcedure is now (procString) => result
     setPageResponse: setResponse,
-    // setPageIsChartReady is removed from here
     setPageCurrentProcedureName: setCurrentProcedureNameForExecutor,
   });
-  
-  // Now initialize useChartRenderer, it can use `procedureInput`
+
   const {
     setChartData,
     setChartConfig,
-    setIsChartReady, // setIsChartReady is defined here
+    setIsChartReady,
     ChartDisplayComponent,
-    triggerChartCapture,
+    // triggerChartCapture // Kept for potential direct use, though ChartDisplayComponent has its own button
   } = useChartRenderer({
     currentProcedureName: currentProcedureNameForExecutor,
     converterModelForFilename: converterModel,
-    procedureInputForFilename: procedureInput, // Now procedureInput is available
+    procedureInputForFilename: procedureInput,
     showEmailFormHandler: handleShowUserInfoForm,
     logUpdater: setResponse,
   });
 
-  // Wrapper for clearCommandQueue to also manage setIsChartReady
   const clearCommandQueue = () => {
     clearCommandQueueFromManager();
-    setIsChartReady(false); // Call setIsChartReady from useChartRenderer
+    setIsChartReady(false);
   };
 
-  useEffect(() => {
-    setTempProcedureInput(procedureInput);
-  }, [procedureInput]);
+  // Removed useEffect for tempProcedureInput as it's no longer needed
 
   const { isExecuting, executeAllCommands } = useCommandExecutor({
     commands,
@@ -203,7 +198,7 @@ export default function Home() {
      const result = await handleSendEmail();
      alert(result.message);
   };
-  
+
   return (
     <div className="flex flex-col items-center justify-start min-h-screen p-8 w-full">
       <h1 className="text-2xl font-bold mb-4">DC Converter Tester V0.4</h1>
@@ -222,7 +217,7 @@ export default function Home() {
               />
             <Select
               value={converterModel}
-              onValueChange={selectAndLoadModelParams}
+              onValueChange={selectAndLoadModelParams} // This already updates converterModel and loads params
               disabled={isBusy || isExecuting}
             >
               <SelectTrigger className="w-[280px] h-10">
@@ -288,13 +283,13 @@ export default function Home() {
               <Input
                 id="procedure"
                 placeholder="e.g., SwPoVi(10,50,5,12,24,3) or select..."
-                value={procedureInput}
-                onChange={(e) => setProcedureInput(e.target.value)}
+                value={procedureInput} // From useCommandQueueManager
+                onChange={(e) => setProcedureInput(e.target.value)} // From useCommandQueueManager
                 className="flex-grow"
                 disabled={isPort1Busy || isPort2Busy || isBusy || isExecuting}
               />
               <Select
-                onValueChange={handleProcedureSelection}
+                onValueChange={handleProcedureSelection} // From useCommandQueueManager
                 disabled={isPort1Busy || isPort2Busy || isBusy || isExecuting}
               >
                 <SelectTrigger className="w-[250px] h-10"> <SelectValue placeholder="Select a procedure..." /> </SelectTrigger>
@@ -403,7 +398,7 @@ export default function Home() {
             Clear Queue
           </Button>
         </div>
-        
+
         <ChartDisplayComponent />
 
         {showUserInfoForm && (

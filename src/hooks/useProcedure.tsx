@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useState } from 'react';
+// import { useState } from 'react'; // No longer needed for internal procedureText state
 
 interface QueuedCommand {
   text: string;
@@ -15,15 +16,15 @@ interface ProcedureGenerationResult {
 }
 
 export function useProcedure(
-  viMinDefault?: string, 
+  viMinDefault?: string,
   viMaxDefault?: string,
   nominalPowerDefault?: string,
   voNominalDefault?: string
 ) {
-  const [procedureText, setProcedureText] = useState('');
+  // const [procedureText, setProcedureText] = useState(''); // REMOVED
 
-  const generateCommandsFromProcedure = (): ProcedureGenerationResult => {
-    const procText = procedureText.trim();
+  const generateCommandsFromProcedure = (procTextToParse: string): ProcedureGenerationResult => {
+    const procText = procTextToParse.trim(); // Use the passed argument
     const swVinMatch = procText.match(/^SwVin\(([^,]*),([^,]*),([^)]*)\)$/i);
     const swIoMatch = procText.match(/^SwIo\(([^,]*),([^,]*),([^)]*)\)$/i);
     const poutMatch = procText.match(/^Pout\(([^)]*)\)$/i);
@@ -97,7 +98,7 @@ export function useProcedure(
       if (isNaN(voN) || voN === 0) return { commands: [], procedureName: 'SwPo', error: 'SwPo Error: Vo (Nominal) is invalid, zero, or not set. Required for Is calculation.' };
 
       if (isNaN(ps1) || isNaN(ps2)) return { commands: [], procedureName: 'SwPo', error: 'SwPo Error: Ps1 or Ps2 invalid.' };
-      
+
       const is1 = ps1 / voN;
       const is2 = ps2 / voN;
 
@@ -201,17 +202,16 @@ export function useProcedure(
       generatedCommands.push({ text: 'MEAS:CURR?', targetPort: 'COM3', meta: { calculatesPi: true } });
       return { commands: generatedCommands, procedureName: 'Pin' };
     } else if (procText) {
-      return { 
-        commands: [], 
-        error: `Unrecognized procedure: "${procText}". Please use a defined procedure (e.g., SwVin, SwIo, SwPo, SwPoVi, Pin, Pout) or the 'Enter Command' section for individual commands.` 
+      return {
+        commands: [],
+        error: `Unrecognized procedure: "${procText}". Please use a defined procedure (e.g., SwVin, SwIo, SwPo, SwPoVi, Pin, Pout) or the 'Enter Command' section for individual commands.`
       };
     }
     return { commands: [] };
   };
 
   return {
-    procedureText,
-    setProcedureText,
+    // Removed: procedureText, setProcedureText
     generateCommandsFromProcedure,
   };
 }
