@@ -89,18 +89,20 @@ export const useChartRenderer = ({
 
     return keys.map((configKey) => {
       const seriesConfig = chartConfig[configKey];
-      if (!seriesConfig || !seriesConfig.color) return null; // Ensure seriesConfig and color exist
+      if (!seriesConfig || !seriesConfig.color) return null; 
 
-      const yAxisIdToUse = currentProcedureName === 'SwVin' && configKey === 'vo' ? 'vo' : 'efficiency';
+      const yAxisIdToUse = (currentProcedureName === 'SwVin' && configKey === 'vo') ? 'vo' : 'efficiency';
+
       return (
         <Line
           key={configKey}
+          yAxisId={yAxisIdToUse} // Assign the correct yAxisId
           type="monotone"
           dataKey={configKey}
-          stroke={seriesConfig.color} // Use color directly from config
+          stroke={seriesConfig.color} 
           name={seriesConfig.label as string || configKey}
           strokeWidth={2}
-          // No 'dot' prop here, so Recharts uses its default (which includes dots)
+          // Removed dot prop to use Recharts default (dots and lines)
         />
       );
     });
