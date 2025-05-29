@@ -102,8 +102,7 @@ export const useChartRenderer = ({
           stroke={seriesConfig.color} 
           yAxisId={yAxisIdToUse}
           name={seriesConfig.label as string || configKey} 
-          // Removed dot={() => null} to show default dots and lines
-          strokeWidth={2}
+          strokeWidth={2} // Explicitly set strokeWidth
         />
       );
     });
