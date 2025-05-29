@@ -92,7 +92,7 @@ export const useChartRenderer = ({
       if (!seriesConfig || !seriesConfig.color) return null;
 
       let yAxisIdToUse = 'efficiency';
-      // Ensure 'vo' line targets 'vo' axis ONLY if SwVin procedure and 'vo' is configured and meant to be plotted.
+      // Ensure 'vo' line targets 'vo' axis ONLY if SwVin procedure, 'vo' is configured, and 'vo' is meant to be plotted.
       if (currentProcedureName === 'SwVin' && configKey === 'vo' && chartConfig?.['vo']?.color) {
         yAxisIdToUse = 'vo';
       }
@@ -103,9 +103,10 @@ export const useChartRenderer = ({
           yAxisId={yAxisIdToUse}
           // type="monotone" // Removed to default to linear
           dataKey={configKey}
-          stroke={seriesConfig.color}
+          stroke={seriesConfig.color} // Direct HSL color string
           name={seriesConfig.label as string || configKey}
           strokeWidth={2}
+          connectNulls={true} // Add this prop
           // No 'dot' prop means default dots will be shown
         />
       );
@@ -118,9 +119,6 @@ export const useChartRenderer = ({
     }
     
     const shouldRenderVoAxis = currentProcedureName === 'SwVin' && chartConfig?.['vo']?.color;
-
-    // console.log("Chart Data for Recharts:", JSON.stringify(chartData, null, 2));
-    // console.log("Chart Config for Recharts:", JSON.stringify(chartConfig, null, 2));
 
     return (
       <Card id="efficiency-chart-card-from-hook" className="w-full mt-4 shadow-sm">
@@ -164,7 +162,7 @@ export const useChartRenderer = ({
         </CardContent>
       </Card>
     );
-  }, [isChartReady, chartData, chartConfig, currentProcedureName, triggerChartCapture, chartLines]); // Added chartLines to dependency array
+  }, [isChartReady, chartData, chartConfig, currentProcedureName, triggerChartCapture, chartLines]);
 
   return {
     chartData, setChartData,
