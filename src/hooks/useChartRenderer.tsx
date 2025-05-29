@@ -91,7 +91,7 @@ export const useChartRenderer = ({
     }
     return keys.map((configKey) => {
       const seriesConfig = chartConfig[configKey];
-      if (!seriesConfig) return null; 
+      if (!seriesConfig) return null;
 
       const yAxisIdToUse = currentProcedureName === 'SwVin' && configKey === 'vo' ? 'vo' : 'efficiency';
       return (
@@ -99,10 +99,11 @@ export const useChartRenderer = ({
           key={configKey}
           type="monotone"
           dataKey={configKey}
-          stroke={seriesConfig.color} 
+          stroke={`var(--color-${configKey})`} // Use CSS variable for stroke color
           yAxisId={yAxisIdToUse}
-          name={seriesConfig.label as string || configKey} 
+          name={seriesConfig.label as string || configKey}
           strokeWidth={2} // Explicitly set strokeWidth
+          // dot={{ r: 3 }} // Example: Make dots visible with radius 3 if desired
         />
       );
     });
@@ -152,5 +153,3 @@ export const useChartRenderer = ({
     triggerChartCapture,
   };
 };
-
-    
