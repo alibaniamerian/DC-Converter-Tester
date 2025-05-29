@@ -102,7 +102,7 @@ export const useChartRenderer = ({
           stroke={seriesConfig.color} 
           yAxisId={yAxisIdToUse}
           name={seriesConfig.label as string || configKey} 
-          dot={{ r: 0 }} // Changed from dot={false}
+          dot={() => null} // Explicitly render nothing for dots
           strokeWidth={2}
         />
       );
@@ -153,7 +153,5 @@ export const useChartRenderer = ({
     triggerChartCapture,
   };
 };
-
-    
 
     
