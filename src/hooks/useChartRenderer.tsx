@@ -91,7 +91,7 @@ export const useChartRenderer = ({
     }
     return keys.map((configKey) => {
       const seriesConfig = chartConfig[configKey];
-      if (!seriesConfig) return null; // Should not happen if keys are from chartConfig
+      if (!seriesConfig) return null; 
 
       const yAxisIdToUse = currentProcedureName === 'SwVin' && configKey === 'vo' ? 'vo' : 'efficiency';
       return (
@@ -102,7 +102,7 @@ export const useChartRenderer = ({
           stroke={seriesConfig.color} 
           yAxisId={yAxisIdToUse}
           name={seriesConfig.label as string || configKey} 
-          dot={() => null} // Explicitly render nothing for dots
+          // Removed dot={() => null} to show default dots and lines
           strokeWidth={2}
         />
       );
