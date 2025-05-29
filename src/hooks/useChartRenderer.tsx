@@ -82,16 +82,14 @@ export const useChartRenderer = ({
   }, [converterModelForFilename, procedureInputForFilename, showEmailFormHandler, logUpdater]);
 
   const chartLines = useMemo(() => {
-    if (!isChartReady || !chartConfig || typeof chartConfig !== 'object') {
+    if (!isChartReady || !chartConfig || typeof chartConfig !== 'object' || Object.keys(chartConfig).length === 0) {
       return null;
     }
     const keys = Object.keys(chartConfig);
-    if (keys.length === 0) {
-      return null;
-    }
+
     return keys.map((configKey) => {
       const seriesConfig = chartConfig[configKey];
-      if (!seriesConfig) return null;
+      if (!seriesConfig || !seriesConfig.color) return null; // Ensure seriesConfig and color exist
 
       const yAxisIdToUse = currentProcedureName === 'SwVin' && configKey === 'vo' ? 'vo' : 'efficiency';
       return (
@@ -99,11 +97,10 @@ export const useChartRenderer = ({
           key={configKey}
           type="monotone"
           dataKey={configKey}
-          stroke={`var(--color-${configKey})`} // Use CSS variable for stroke color
-          yAxisId={yAxisIdToUse}
+          stroke={seriesConfig.color} // Use color directly from config
           name={seriesConfig.label as string || configKey}
-          strokeWidth={2} // Explicitly set strokeWidth
-          // dot={{ r: 3 }} // Example: Make dots visible with radius 3 if desired
+          strokeWidth={2}
+          // No 'dot' prop here, so Recharts uses its default (which includes dots)
         />
       );
     });
@@ -153,3 +150,4 @@ export const useChartRenderer = ({
     triggerChartCapture,
   };
 };
+
