@@ -89,34 +89,27 @@ export const useChartRenderer = ({
 
     return keys.map((configKey) => {
       const seriesConfig = chartConfig[configKey];
-      if (!seriesConfig || !seriesConfig.color) return null; 
+      if (!seriesConfig || !seriesConfig.color) return null;
 
-      let yAxisIdToUse = 'efficiency'; // Default to efficiency axis
-
-      // Determine yAxisId based on currentProcedureName and configKey
-      if (currentProcedureName === 'SwVin' && configKey === 'vo') {
-        // For SwVin, if the 'vo' series is being plotted, and the 'vo' Y-axis is configured to render, target 'vo' axis.
-         if (chartConfig?.['vo']?.color) { // Check if 'vo' axis would be rendered
-            yAxisIdToUse = 'vo';
-        }
+      let yAxisIdToUse = 'efficiency';
+      // Ensure 'vo' line targets 'vo' axis ONLY if SwVin procedure and 'vo' is configured and meant to be plotted.
+      if (currentProcedureName === 'SwVin' && configKey === 'vo' && chartConfig?.['vo']?.color) {
+        yAxisIdToUse = 'vo';
       }
-      // For all other cases (not SwVin, or SwVin but not 'vo' series), it defaults to 'efficiency'.
-      // This ensures that if SwPoVi or other procedures are run, all lines target the 'efficiency' axis,
-      // which is the only one rendered for those procedures.
 
       return (
         <Line
           key={configKey}
-          yAxisId={yAxisIdToUse} 
-          type="monotone"
+          yAxisId={yAxisIdToUse}
+          // type="monotone" // Removed to default to linear
           dataKey={configKey}
-          stroke={seriesConfig.color} 
+          stroke={seriesConfig.color}
           name={seriesConfig.label as string || configKey}
           strokeWidth={2}
-          // Removed dot prop to use Recharts default (dots and lines)
+          // No 'dot' prop means default dots will be shown
         />
       );
-    }).filter(Boolean); // Filter out any nulls returned if a seriesConfig was invalid
+    }).filter(Boolean);
   }, [isChartReady, chartConfig, currentProcedureName]);
 
   const ChartDisplayComponent = useCallback(() => {
@@ -124,8 +117,10 @@ export const useChartRenderer = ({
       return null;
     }
     
-    // Determine if the 'vo' Y-axis should be rendered
     const shouldRenderVoAxis = currentProcedureName === 'SwVin' && chartConfig?.['vo']?.color;
+
+    // console.log("Chart Data for Recharts:", JSON.stringify(chartData, null, 2));
+    // console.log("Chart Config for Recharts:", JSON.stringify(chartConfig, null, 2));
 
     return (
       <Card id="efficiency-chart-card-from-hook" className="w-full mt-4 shadow-sm">
@@ -169,7 +164,7 @@ export const useChartRenderer = ({
         </CardContent>
       </Card>
     );
-  }, [isChartReady, chartData, chartConfig, currentProcedureName, triggerChartCapture, chartLines]);
+  }, [isChartReady, chartData, chartConfig, currentProcedureName, triggerChartCapture, chartLines]); // Added chartLines to dependency array
 
   return {
     chartData, setChartData,
@@ -179,4 +174,3 @@ export const useChartRenderer = ({
     triggerChartCapture,
   };
 };
-
