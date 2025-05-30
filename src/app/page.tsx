@@ -10,6 +10,8 @@ import { Plug, Trash2 } from 'lucide-react';
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
 
 // Hooks
 import { useComPort } from '../hooks/useComPort';
@@ -123,10 +125,8 @@ export default function Home() {
     setIsBusy, setResponse, sendAndRead, setCommandResponses: () => {},
   });
 
-  // useProcedure hook is instantiated with default parameter values
   const { generateCommandsFromProcedure } = useProcedure(viMin, viMax, nominalPower, voNominal);
 
-  // Initialize useCommandQueueManager, passing the configured generateCommandsFromProcedure
   const {
     commandInput, setCommandInput, procedureInput, setProcedureInput, selectedPort, setSelectedPort, selectedProcedureDescription, commands, commandResponses,
     addCommandToQueue, addProcedureToQueue, removeCommandFromQueue,
@@ -136,7 +136,7 @@ export default function Home() {
   } = useCommandQueueManager({
     procedureListItems,
     deviceParams,
-    generateCommandsFromProcedure, // generateCommandsFromProcedure is now (procString) => result
+    generateCommandsFromProcedure, 
     setPageResponse: setResponse,
     setPageCurrentProcedureName: setCurrentProcedureNameForExecutor,
   });
@@ -146,7 +146,6 @@ export default function Home() {
     setChartConfig,
     setIsChartReady,
     ChartDisplayComponent,
-    // triggerChartCapture // Kept for potential direct use, though ChartDisplayComponent has its own button
   } = useChartRenderer({
     currentProcedureName: currentProcedureNameForExecutor,
     converterModelForFilename: converterModel,
@@ -159,8 +158,6 @@ export default function Home() {
     clearCommandQueueFromManager();
     setIsChartReady(false);
   };
-
-  // Removed useEffect for tempProcedureInput as it's no longer needed
 
   const { isExecuting, executeAllCommands } = useCommandExecutor({
     commands,
@@ -178,20 +175,13 @@ export default function Home() {
 
   const {
     isScanning,
-    scannedModel,
-    scannedDate,
+    scannedModel, // We might not need to use this directly if setConverterModel updates the main one
+    scannedDate,  // Can be displayed if needed
+    error: qrScannerError,
     videoRef,
     startScan,
     stopScan
-  } = useQRCodeScanner({ setConverterModel }); // Pass setConverterModel
-
-  useEffect(() => {
-    // Update converterModel when scannedModel changes
-    if (scannedModel) {
-      setConverterModel(scannedModel);
-      // Optionally, you could also handle scannedDate here if needed elsewhere
-    }
-  }, [scannedModel, setConverterModel]); // Add setConverterModel to dependencies
+  } = useQRCodeScanner({ setConverterModel }); // Pass setConverterModel directly
 
 
   useEffect(() => {
@@ -215,6 +205,9 @@ export default function Home() {
 
   const handleClientSendEmail = async () => {
      const result = await handleSendEmail();
+     // Display the message from the API (success or error)
+     setResponse(prev => prev + String.fromCharCode(10) + `Email Status: ${result.message}`);
+     // Optionally, use a toast notification here for better UX
      alert(result.message);
   };
 
@@ -225,28 +218,35 @@ export default function Home() {
       <div className="w-full max-w-[80rem] space-y-4">
         <div className="w-full p-4 border rounded-md shadow-sm">
           <div className="flex items-center justify-between mb-1">
- + {/* Video preview for QR code scanning */}
- {isScanning && (
- <video ref={videoRef} style={{ width: '100%', maxWidth: '300px', height: 'auto', display: 'block', marginBottom: '1rem' }}></video>
- )}
-
             <Label htmlFor="converterModel" className="block text-sm font-medium text-foreground">Converter Model</Label>
              <Button onClick={startScan} disabled={isScanning || isBusy || isExecuting} size="sm">
               {isScanning ? 'Scanning...' : 'Scan QR Code'}
-            </Button></div>
+            </Button>
+          </div>
+           {isScanning && (
+             <video ref={videoRef} style={{ width: '100%', maxWidth: '300px', height: 'auto', display: 'block', marginBottom: '1rem', border: '1px solid #ccc' }} autoPlay playsInline muted></video>
+           )}
+           {qrScannerError && (
+            <Alert variant="destructive" className="mb-2">
+              <AlertTitle>QR Scanner Error</AlertTitle>
+              <AlertDescription>{qrScannerError}</AlertDescription>
+            </Alert>
+           )}
           <div className="flex items-center gap-2">
              <Input
                 id="converterModel"
                 placeholder="Enter or select model..."
                 value={converterModel}
                 onChange={(e) => setConverterModel(e.target.value)}
-                disabled={isBusy || isExecuting}
+                disabled={isBusy || isExecuting || isScanning}
                 className="flex-grow"
               />
             <Select
-              value={converterModel}
-              onValueChange={selectAndLoadModelParams} // This already updates converterModel and loads params
-              disabled={isBusy || isExecuting}
+              value={converterModel} // Ensure this reflects the actual converterModel state
+              onValueChange={(value) => {
+                selectAndLoadModelParams(value); // This sets converterModel and loads params
+              }}
+              disabled={isBusy || isExecuting || isScanning}
             >
               <SelectTrigger className="w-[280px] h-10">
                 <SelectValue placeholder="Load existing model..." />
@@ -261,7 +261,7 @@ export default function Home() {
             </Select>
             <Button
               onClick={saveCurrentDeviceParams}
-              disabled={isBusy || isExecuting || !converterModel.trim()}
+              disabled={isBusy || isExecuting || isScanning || !converterModel.trim()}
               className="h-10"
             >
               Save Params
@@ -311,13 +311,13 @@ export default function Home() {
               <Input
                 id="procedure"
                 placeholder="e.g., SwPoVi(10,50,5,12,24,3) or select..."
-                value={procedureInput} // From useCommandQueueManager
-                onChange={(e) => setProcedureInput(e.target.value)} // From useCommandQueueManager
+                value={procedureInput} 
+                onChange={(e) => setProcedureInput(e.target.value)} 
                 className="flex-grow"
                 disabled={isPort1Busy || isPort2Busy || isBusy || isExecuting}
               />
               <Select
-                onValueChange={handleProcedureSelection} // From useCommandQueueManager
+                onValueChange={handleProcedureSelection} 
                 disabled={isPort1Busy || isPort2Busy || isBusy || isExecuting}
               >
                 <SelectTrigger className="w-[250px] h-10"> <SelectValue placeholder="Select a procedure..." /> </SelectTrigger>
@@ -418,7 +418,7 @@ export default function Home() {
           </Button>
           <Button
             variant="outline"
-            onClick={clearCommandQueue} // Updated to use the wrapper
+            onClick={clearCommandQueue} 
             className="w-full"
             disabled={commands.length === 0 || isBusy || isExecuting || isPort1Busy || isPort2Busy}
           >
@@ -488,3 +488,4 @@ export default function Home() {
     </div>
   );
 }
+
