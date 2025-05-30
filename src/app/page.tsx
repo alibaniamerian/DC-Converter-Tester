@@ -18,6 +18,7 @@ import { useEmailSender } from '../hooks/useEmailSender';
 import { useDeviceParametersAndModel } from '../hooks/useDeviceParametersAndModel';
 import { useCommandExecutor, type QueuedCommand, type ChartDataPoint } from '../hooks/useCommandExecutor';
 import { useCommandQueueManager } from '../hooks/useCommandQueueManager';
+import { useQRCodeScanner } from '../hooks/useQRCodeScanner';
 import { useChartRenderer, type ChartConfig as PageChartConfig } from '../hooks/useChartRenderer.tsx';
 
 
@@ -175,6 +176,24 @@ export default function Home() {
     setIsBusyInPage: setIsBusy,
   });
 
+  const {
+    isScanning,
+    scannedModel,
+    scannedDate,
+    videoRef,
+    startScan,
+    stopScan
+  } = useQRCodeScanner({ setConverterModel }); // Pass setConverterModel
+
+  useEffect(() => {
+    // Update converterModel when scannedModel changes
+    if (scannedModel) {
+      setConverterModel(scannedModel);
+      // Optionally, you could also handle scannedDate here if needed elsewhere
+    }
+  }, [scannedModel, setConverterModel]); // Add setConverterModel to dependencies
+
+
   useEffect(() => {
     if (responseLogRef.current) {
       responseLogRef.current.scrollTop = responseLogRef.current.scrollHeight;
@@ -205,7 +224,16 @@ export default function Home() {
 
       <div className="w-full max-w-[80rem] space-y-4">
         <div className="w-full p-4 border rounded-md shadow-sm">
-          <Label htmlFor="converterModel" className="block text-sm font-medium text-foreground mb-1">Converter Model</Label>
+          <div className="flex items-center justify-between mb-1">
+ + {/* Video preview for QR code scanning */}
+ {isScanning && (
+ <video ref={videoRef} style={{ width: '100%', maxWidth: '300px', height: 'auto', display: 'block', marginBottom: '1rem' }}></video>
+ )}
+
+            <Label htmlFor="converterModel" className="block text-sm font-medium text-foreground">Converter Model</Label>
+             <Button onClick={startScan} disabled={isScanning || isBusy || isExecuting} size="sm">
+              {isScanning ? 'Scanning...' : 'Scan QR Code'}
+            </Button></div>
           <div className="flex items-center gap-2">
              <Input
                 id="converterModel"

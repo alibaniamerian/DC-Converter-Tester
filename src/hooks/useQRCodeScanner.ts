@@ -1,7 +1,8 @@
-\
+
 "use client";
 /// <reference lib="dom" />
-
+import jsQR from 'jsqr';
+import { useEffect } from 'react';
 import { useState, useCallback, useRef } from 'react';
 
 interface QRCodeData {
@@ -55,22 +56,50 @@ export const useQRCodeScanner = (): UseQRCodeScannerReturn => {
       if (videoRef.current) {
         videoRef.current.srcObject = streamRef.current;
         await videoRef.current.play();
+
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+
+        const scanFrame = () => {
+          if (!isScanning || !videoRef.current || !context || !streamRef.current) {
+            // If scanning stopped or resources unavailable, exit
+            return;
+          }
+
+          canvas.width = videoRef.current.videoWidth;
+          canvas.height = videoRef.current.videoHeight;
+          context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+
+          const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: "dontInvert",
+          });
+
+          if (code) {
+            console.log("QR Code found:", code.data);
+            const parsedData = parseQRCodeData(code.data);
+            if (parsedData) {
+              setScannedModel(parsedData.model);
+              setScannedDate(parsedData.date);
+              console.log("Parsed QR data:", parsedData);
+              stopScan(); 
+              return; // Exit scanFrame as we found and processed the code
+            } else {
+              console.error("Failed to parse QR code data. Raw data:", code.data);
+              setError(`Could not parse QR code data: ${code.data}`);
+              // Optionally stop scan on parse error, or let it continue
+              // stopScan(); 
+              // return;
+            }
+          }
+          
+          // Continue scanning only if still active and stream exists
+          if (isScanning && streamRef.current) {
+            requestAnimationFrame(scanFrame);
+          }
+        }; // Semicolon added for clarity and to help parser
         
-        // Placeholder for QR code scanning logic
-        // In a real implementation, you would use a library like jsQR or zxing-js here
-        // to continuously scan frames from the videoRef.
-        console.log("Camera activated. Implement QR Code scanning library here.");
-        
-        // For demonstration, let's simulate a scan after 5 seconds
-        // setTimeout(() => {
-        //   if (isScanning) { // Check if still scanning
-        //     const fakeQrData = { model: "DemoModel123", date: "2024-07-31" };
-        //     setScannedModel(fakeQrData.model);
-        //     setScannedDate(fakeQrData.date);
-        //     console.log("Simulated QR scan:", fakeQrData);
-        //     stopScan(); 
-        //   }
-        // }, 5000);
+        scanFrame(); // Initial call to start the scanning loop
 
       } else {
         setError("Video element is not available.");
@@ -85,9 +114,8 @@ export const useQRCodeScanner = (): UseQRCodeScannerReturn => {
       }
       stopScan();
     }
-  }, [stopScan]); // Removed isScanning from dependencies to avoid issues with setTimeout example
+  }, [stopScan]); 
 
-  // Cleanup effect
   useEffect(() => {
     return () => {
       stopScan();
@@ -106,15 +134,15 @@ export const useQRCodeScanner = (): UseQRCodeScannerReturn => {
 };
 
 // Helper to parse QR code string (assuming JSON format)
-// export const parseQRCodeData = (qrString: string): QRCodeData | null => {
-//   try {
-//     const data = JSON.parse(qrString);
-//     if (data && typeof data.model === 'string' && typeof data.date === 'string') {
-//       return data;
-//     }
-//     return null;
-//   } catch (e) {
-//     console.error("Failed to parse QR code data:", e);
-//     return null;
-//   }
-// };
+export const parseQRCodeData = (qrString: string): QRCodeData | null => {
+  try {
+    const data = JSON.parse(qrString);
+    if (data && typeof data.model === 'string' && typeof data.date === 'string') {
+      return data;
+    }
+    return null;
+  } catch (e) {
+    return null; // Return null on parsing error
+  }
+};
+
