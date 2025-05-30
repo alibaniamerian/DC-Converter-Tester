@@ -1,8 +1,8 @@
-
 "use client";
 /// <reference lib="dom" />
 
 import React, { useState, useCallback } from 'react';
+import useTestResultsFirestore from './useTestResultsFirestore'; // Import the Firestore hook
 
 // Define QueuedCommand and ChartDataPoint if not imported from a shared types file
 // For now, assuming QueuedCommand might be defined in a shared types file or useCommandQueueManager
@@ -35,6 +35,14 @@ export interface UseCommandExecutorProps {
   port2: SerialPort | null;
   userTimeout: string;
   currentProcedureName: string | undefined;
+  deviceParams: { // Updated deviceParams type to include serialNumber and scannedDate
+    nominalPower: string;
+    viMin: string;
+    viMax: string;
+    voNominal: string;
+    serialNumber: string; // Added
+    scannedDate: string; // Added
+  };
   sendAndRead: (
     port: SerialPort | null,
     commandToSend: string,
@@ -46,7 +54,7 @@ export interface UseCommandExecutorProps {
   setPageResponse: React.Dispatch<React.SetStateAction<string>>; // Main page response updater
   setCommandResponsesInPage: React.Dispatch<React.SetStateAction<string[]>>; // To update the page's commandResponses state
   setChartDataInPage: React.Dispatch<React.SetStateAction<ChartDataPoint[]>>;
-  setChartConfigInPage: React.Dispatch<React.SetStateAction<ChartConfig>>;
+  setChartConfigInPage: React.Dispatch<React.SetStateStateAction<ChartConfig>>;
   setIsChartReadyInPage: React.Dispatch<React.SetStateAction<boolean>>;
   setIsBusyInPage: React.Dispatch<React.SetStateAction<boolean>>; // To set the general page busy state
 }
@@ -72,6 +80,7 @@ export const useCommandExecutor = ({
   port2,
   userTimeout,
   currentProcedureName,
+  deviceParams, // Destructure deviceParams (now includes serialNumber and scannedDate)
   sendAndRead,
   setPageResponse,
   setCommandResponsesInPage, // Renamed for clarity
@@ -81,6 +90,7 @@ export const useCommandExecutor = ({
   setIsBusyInPage            // Renamed for clarity
 }: UseCommandExecutorProps): UseCommandExecutorReturn => {
   const [isExecuting, setIsExecuting] = useState(false);
+  const { addTestResult } = useTestResultsFirestore(); // Use the Firestore hook
 
   const executeAllCommands = useCallback(async () => {
     if (isExecuting) {
@@ -230,6 +240,30 @@ export const useCommandExecutor = ({
     }
     setChartDataInPage(finalChartData);
     setChartConfigInPage(newChartConfigLocal);
+
+    // Save results to Firestore
+    if (currentProcedureName && finalChartData.length > 0) {
+      try {
+        await addTestResult({
+          procedureName: currentProcedureName,
+          deviceParams: {
+             nominalPower: deviceParams.nominalPower,
+             viMin: deviceParams.viMin,
+             viMax: deviceParams.viMax,
+             voNominal: deviceParams.voNominal,
+             serialNumber: deviceParams.serialNumber, // Include serial number
+             scannedDate: deviceParams.scannedDate, // Include scanned date
+          },
+          testData: finalChartData,
+          testTimestamp: new Date(), // Add the current test execution timestamp
+        });
+        setPageResponse(prev => prev + `${String.fromCharCode(10)}Test results saved to Firestore.`);
+      } catch (error) {
+        setPageResponse(prev => prev + `${String.fromCharCode(10)}Failed to save test results to Firestore: ${error}`);
+        console.error("Error saving test results to Firestore:", error);
+      }
+    }
+
     if(finalChartData.length > 0) setIsChartReadyInPage(true);
     setPageResponse(prev => prev + `${String.fromCharCode(10)}All commands executed.`);
     setIsExecuting(false);
@@ -238,10 +272,11 @@ export const useCommandExecutor = ({
   }, [
     commands,
     isConnected1, port1, isConnected2, port2,
-    userTimeout, currentProcedureName,
+    userTimeout, currentProcedureName, deviceParams, // deviceParams now includes serialNumber and scannedDate
     sendAndRead, setPageResponse,
     setCommandResponsesInPage, setChartDataInPage, setChartConfigInPage, setIsChartReadyInPage, setIsBusyInPage,
-    isExecuting // To prevent re-triggering if already executing
+    isExecuting, // To prevent re-triggering if already executing
+    addTestResult // Add addTestResult to dependency array
   ]);
 
   return {

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useCallback } from 'react';
@@ -23,14 +22,20 @@ export interface UseDeviceParametersAndModelReturn {
   converterModel: string;
   setConverterModel: React.Dispatch<React.SetStateAction<string>>;
   availableModels: string[];
-  selectAndLoadModelParams: (modelName: string) => Promise<void>;
+  selectAndLoadModelParams: (modelName: string, serialNumber?: string, scannedDate?: string) => Promise<void>; // Added optional params
   saveCurrentDeviceParams: () => Promise<void>;
+  serialNumber: string; // Added serialNumber
+  setSerialNumber: React.Dispatch<React.SetStateAction<string>>; // Added setSerialNumber
+  scannedDate: string; // Added scannedDate
+  setScannedDate: React.Dispatch<React.SetStateAction<string>>; // Added setScannedDate
   // Expose params directly for other hooks if needed
   deviceParams: { 
     nominalPower: string; 
     viMin: string; 
     viMax: string; 
     voNominal: string; 
+    serialNumber: string; // Added serialNumber
+    scannedDate: string; // Added scannedDate
   };
 }
 
@@ -43,6 +48,8 @@ export const useDeviceParametersAndModel = ({
   const [viMax, setViMax] = useState('');
   const [voNominal, setVoNominal] = useState('');
   const [userTimeout, setUserTimeout] = useState<string>('1000'); // Default timeout
+  const [serialNumber, setSerialNumber] = useState<string>(''); // Added state for serial number
+  const [scannedDate, setScannedDate] = useState<string>(''); // Added state for scanned date
 
   const {
     converterModel,
@@ -52,9 +59,18 @@ export const useDeviceParametersAndModel = ({
     saveConverterParams,
   } = useConverterModel();
 
-  const selectAndLoadModelParams = useCallback(async (modelName: string) => {
+  const selectAndLoadModelParams = useCallback(async (modelName: string, serialNumberFromScan?: string, scannedDateFromScan?: string) => {
     if (!modelName) return;
     setConverterModel(modelName); // Set the model name first
+    
+    // Update serial number and scanned date if provided from scan
+    if (serialNumberFromScan !== undefined) {
+      setSerialNumber(serialNumberFromScan);
+    }
+    if (scannedDateFromScan !== undefined) {
+      setScannedDate(scannedDateFromScan);
+    }
+
     setPageIsBusy(true);
     setPageResponse(prev => prev + `${String.fromCharCode(10)}Loading parameters for model: ${modelName}...`);
     const params = await loadConverterParams(modelName);
@@ -70,7 +86,7 @@ export const useDeviceParametersAndModel = ({
       setPageResponse(prev => prev + `${String.fromCharCode(10)}Failed to load parameters for ${modelName}. Model not found or no parameters defined.`);
     }
     setPageIsBusy(false);
-  }, [setConverterModel, loadConverterParams, setPageIsBusy, setPageResponse]);
+  }, [setConverterModel, loadConverterParams, setPageIsBusy, setPageResponse, setSerialNumber, setScannedDate]); // Added dependencies
 
   const saveCurrentDeviceParams = useCallback(async () => {
     if (!converterModel.trim()) {
@@ -98,7 +114,9 @@ export const useDeviceParametersAndModel = ({
     nominalPower,
     viMin,
     viMax,
-    voNominal
+    voNominal,
+    serialNumber,
+    scannedDate,
   };
 
   return {
@@ -117,6 +135,10 @@ export const useDeviceParametersAndModel = ({
     availableModels,   // From useConverterModel
     selectAndLoadModelParams,
     saveCurrentDeviceParams,
+    serialNumber, // Return new states
+    setSerialNumber, // Return new setters
+    scannedDate, // Return new states
+    setScannedDate, // Return new setters
     deviceParams,
   };
 };
