@@ -10,20 +10,20 @@ interface QRCodeData {
 }
 
 interface UseQRCodeScannerProps {
-  setConverterModel: (model: string) => void;
+  onModelScannedAndLoadParams: (model: string) => Promise<void>; // Changed prop
 }
 
 interface UseQRCodeScannerReturn {
   isScanning: boolean;
-  scannedModel: string | null;
-  scannedDate: string | null;
+  scannedModel: string | null; // Kept for potential display, though main update is via prop
+  scannedDate: string | null;  // Kept for potential display
   error: string | null;
   videoRef: React.RefObject<HTMLVideoElement>;
   startScan: () => Promise<void>;
   stopScan: () => void;
 }
 
-export const useQRCodeScanner = ({ setConverterModel }: UseQRCodeScannerProps): UseQRCodeScannerReturn => {
+export const useQRCodeScanner = ({ onModelScannedAndLoadParams }: UseQRCodeScannerProps): UseQRCodeScannerReturn => {
   const [isScanningState, setIsScanningState] = useState(false);
   const [scannedModel, setScannedModel] = useState<string | null>(null);
   const [scannedDate, setScannedDate] = useState<string | null>(null);
@@ -50,19 +50,19 @@ export const useQRCodeScanner = ({ setConverterModel }: UseQRCodeScannerProps): 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-    setIsScanningState(false);
+    setIsScanningState(false); // This will trigger the useEffect to update isScanningRef
     console.log("QR Scanning stopped.");
   }, []);
 
   const startScan = useCallback(async () => {
     console.log("Attempting to start QR scan...");
-    if (isScanningRef.current) {
+    if (isScanningRef.current) { // Use ref for immediate check
       console.log("Scan already in progress, stopping first.");
-      stopScan(); // Call the existing stopScan
-      await new Promise(resolve => setTimeout(resolve, 100)); // Short delay for cleanup
+      stopScan();
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    setIsScanningState(true);
+    setIsScanningState(true); // This will trigger the useEffect to update isScanningRef
     setError(null);
     setScannedModel(null);
     setScannedDate(null);
@@ -91,7 +91,7 @@ export const useQRCodeScanner = ({ setConverterModel }: UseQRCodeScannerProps): 
           return;
         }
         
-        const scanFrame = () => {
+        const scanFrame = async () => {
           console.log(`scanFrame: Entered. isScanningRef.current=${isScanningRef.current}`);
           if (!isScanningRef.current || !videoRef.current || !streamRef.current || videoRef.current.paused || videoRef.current.ended) {
             console.log("scanFrame: Exiting - not scanning, or videoRef/streamRef is null, or video ended/paused.");
@@ -100,7 +100,7 @@ export const useQRCodeScanner = ({ setConverterModel }: UseQRCodeScannerProps): 
 
           if (videoRef.current.readyState < HTMLVideoElement.HAVE_ENOUGH_DATA) {
             console.log(`scanFrame: Video not ready (readyState ${videoRef.current.readyState}). Requesting next frame.`);
-            if (isScanningRef.current) {
+            if (isScanningRef.current) { // Check ref
               animationFrameIdRef.current = requestAnimationFrame(scanFrame);
             }
             return;
@@ -111,7 +111,7 @@ export const useQRCodeScanner = ({ setConverterModel }: UseQRCodeScannerProps): 
 
           if (canvas.width === 0 || canvas.height === 0) {
             console.log("scanFrame: Canvas dimensions are zero. Video metadata might not be fully loaded. Requesting next frame.");
-            if (isScanningRef.current) {
+            if (isScanningRef.current) { // Check ref
                 animationFrameIdRef.current = requestAnimationFrame(scanFrame);
             }
             return;
@@ -128,28 +128,33 @@ export const useQRCodeScanner = ({ setConverterModel }: UseQRCodeScannerProps): 
             const parsedData = parseQRCodeData(code.data);
             if (parsedData) {
               console.log("Parsed QR data:", parsedData);
-              setScannedModel(parsedData.model);
-              setScannedDate(parsedData.date);
-              setConverterModel(parsedData.model); 
-              setError(null);
+              setScannedModel(parsedData.model); // Still useful for local display if needed
+              setScannedDate(parsedData.date);   // Still useful for local display if needed
+              try {
+                await onModelScannedAndLoadParams(parsedData.model); // Call the prop
+                setError(null); // Clear any previous error
+              } catch (loadError) {
+                console.error("Error loading model params after QR scan:", loadError);
+                setError("QR scanned, but failed to load model parameters.");
+              }
               stopScan();
               return; 
             } else {
               console.warn("Failed to parse QR code data. Raw data:", code.data);
               setError(`QR detected, but data format is incorrect. Expected JSON with "model" and "date", or "MODEL: ... Date: ...". Got: ${code.data.substring(0, 50)}...`);
-              stopScan(); // Stop scanning if parsing fails to prevent repeated errors
+              stopScan(); 
               return;
             }
           }
           
-          if (isScanningRef.current && streamRef.current) {
+          if (isScanningRef.current && streamRef.current) { // Check ref
              animationFrameIdRef.current = requestAnimationFrame(scanFrame);
           } else {
             console.log("scanFrame: Not requesting next frame because isScanningRef.current is false or streamRef.current is null.");
           }
         };
         
-        if (isScanningRef.current) { // Check again before starting the loop
+        if (isScanningRef.current) { // Check ref again
             animationFrameIdRef.current = requestAnimationFrame(scanFrame);
         } else {
              console.warn("startScan: isScanningRef.current was false before scanFrame loop could be started. Scan not initiated.");
@@ -170,7 +175,7 @@ export const useQRCodeScanner = ({ setConverterModel }: UseQRCodeScannerProps): 
       }
       stopScan();
     }
-  }, [stopScan, setConverterModel]); // Removed isScanningState from dependencies
+  }, [stopScan, onModelScannedAndLoadParams]); // Dependency on the new prop
 
   useEffect(() => {
     return () => {
@@ -191,7 +196,6 @@ export const useQRCodeScanner = ({ setConverterModel }: UseQRCodeScannerProps): 
 };
 
 export const parseQRCodeData = (qrString: string): QRCodeData | null => {
-  // Attempt 1: Try to parse as JSON
   try {
     const jsonData = JSON.parse(qrString);
     if (jsonData && typeof jsonData.model === 'string' && typeof jsonData.date === 'string') {
@@ -199,12 +203,10 @@ export const parseQRCodeData = (qrString: string): QRCodeData | null => {
       return { model: jsonData.model, date: jsonData.date };
     }
   } catch (e) {
-    // JSON parsing failed, proceed to try the text format
     console.warn("QR string is not valid JSON, attempting text format parse. Error:", e);
   }
 
-  // Attempt 2: Try to parse "MODEL: ... Date: ..." format
-  const modelDateRegex = /MODEL:\s*([^ ]+)\s*Date:\s*(\d{4}-\d{2}-\d{2})/;
+  const modelDateRegex = /MODEL:\s*([^ \n\r]+)\s*Date:\s*(\d{4}-\d{2}-\d{2})/;
   const match = qrString.match(modelDateRegex);
 
   if (match && match[1] && match[2]) {

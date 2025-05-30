@@ -175,13 +175,15 @@ export default function Home() {
 
   const {
     isScanning,
-    scannedModel, // We might not need to use this directly if setConverterModel updates the main one
-    scannedDate,  // Can be displayed if needed
+    // scannedModel, // No longer directly used from here for setting model
+    // scannedDate, // Can be displayed if needed
     error: qrScannerError,
     videoRef,
     startScan,
-    stopScan
-  } = useQRCodeScanner({ setConverterModel }); // Pass setConverterModel directly
+    // stopScan // stopScan is usually called internally or on unmount
+  } = useQRCodeScanner({ 
+    onModelScannedAndLoadParams: selectAndLoadModelParams 
+  });
 
 
   useEffect(() => {
@@ -205,9 +207,7 @@ export default function Home() {
 
   const handleClientSendEmail = async () => {
      const result = await handleSendEmail();
-     // Display the message from the API (success or error)
      setResponse(prev => prev + String.fromCharCode(10) + `Email Status: ${result.message}`);
-     // Optionally, use a toast notification here for better UX
      alert(result.message);
   };
 
@@ -237,14 +237,15 @@ export default function Home() {
                 id="converterModel"
                 placeholder="Enter or select model..."
                 value={converterModel}
-                onChange={(e) => setConverterModel(e.target.value)}
+                onChange={(e) => setConverterModel(e.target.value)} // Allows typing new model
                 disabled={isBusy || isExecuting || isScanning}
                 className="flex-grow"
               />
             <Select
-              value={converterModel} // Ensure this reflects the actual converterModel state
+              value={converterModel} 
               onValueChange={(value) => {
-                selectAndLoadModelParams(value); // This sets converterModel and loads params
+                // This will set the model name and trigger parameter loading
+                selectAndLoadModelParams(value); 
               }}
               disabled={isBusy || isExecuting || isScanning}
             >
