@@ -16,8 +16,8 @@ interface UseQRCodeScannerProps {
 
 interface UseQRCodeScannerReturn {
   isScanning: boolean;
-  scannedModel: string | null; // Kept for potential direct display if needed
-  scannedDate: string | null; // Kept for potential direct display
+  scannedModel: string | null;
+  scannedDate: string | null;
   error: string | null;
   videoRef: React.RefObject<HTMLVideoElement>;
   startScan: () => Promise<void>;
@@ -73,54 +73,77 @@ export const useQRCodeScanner = ({ setConverterModel }: UseQRCodeScannerProps): 
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
 
+        if (!context) {
+          console.error("Failed to get 2D context from canvas");
+          setError("Failed to initialize canvas for QR scanning.");
+          stopScan();
+          return;
+        }
+
         const scanFrame = () => {
-          if (!isScanning || !videoRef.current || !context || !streamRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
-            if (isScanning) { // Only request next frame if still supposed to be scanning
-              animationFrameIdRef.current = requestAnimationFrame(scanFrame);
-            }
+          console.log(`scanFrame: Entered. isScanning=${isScanning}`); // LOG ENTRY AND isScanning STATE
+
+          if (!isScanning || !videoRef.current || !streamRef.current) {
+            console.log("scanFrame: Exiting - not scanning, or videoRef/streamRef is null.");
+            // No recursive call if !isScanning
+            return;
+          }
+          
+          console.log(`scanFrame: videoRef.readyState=${videoRef.current.readyState}, HAVE_ENOUGH_DATA=${HTMLVideoElement.HAVE_ENOUGH_DATA}`); // LOG video readyState
+
+          if (videoRef.current.readyState < HTMLVideoElement.HAVE_ENOUGH_DATA) {
+            console.log("scanFrame: Video not ready yet (readyState < HAVE_ENOUGH_DATA). Requesting next frame.");
+            animationFrameIdRef.current = requestAnimationFrame(scanFrame);
             return;
           }
 
           canvas.width = videoRef.current.videoWidth;
           canvas.height = videoRef.current.videoHeight;
+
+          console.log(`scanFrame: Canvas dimensions set - width=${canvas.width}, height=${canvas.height}`);
+
           if (canvas.width === 0 || canvas.height === 0) {
-            // Video dimensions not yet available
+            console.log("scanFrame: Canvas dimensions are zero. Video metadata might not be fully loaded. Requesting next frame.");
             animationFrameIdRef.current = requestAnimationFrame(scanFrame);
             return;
           }
+          
+          console.log("scanFrame: Attempting to draw image to canvas.");
           context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+          console.log("scanFrame: Image drawn to canvas for jsQR.");
 
           const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+          console.log("scanFrame: getImageData successful. Calling jsQR.");
           const code = jsQR(imageData.data, imageData.width, imageData.height, {
             inversionAttempts: "dontInvert",
           });
+          console.log("scanFrame: jsQR result - ", code ? `Data: ${code.data.substring(0,30)}...` : "No QR code detected");
 
           if (code) {
             console.log("jsQR detected QR Code. Raw data:", code.data);
             const parsedData = parseQRCodeData(code.data);
             if (parsedData) {
               console.log("Parsed QR data:", parsedData);
-              setScannedModel(parsedData.model); // Internal state
-              setScannedDate(parsedData.date);   // Internal state
-              setConverterModel(parsedData.model); // Update parent component's state
-              setError(null); // Clear any previous error
-              stopScan();
-              return; 
+              setScannedModel(parsedData.model);
+              setScannedDate(parsedData.date);
+              setConverterModel(parsedData.model);
+              setError(null);
+              stopScan(); // Stop scanning on success
+              return; // Exit scanFrame
             } else {
               console.warn("Failed to parse QR code data. Raw data:", code.data);
               setError(`QR detected, but data format is incorrect. Expected JSON with "model" and "date". Got: ${code.data.substring(0, 50)}...`);
-              // Optionally stop scan on parse error, or let it continue
-              // stopScan(); 
-              // return;
+              // Optionally, continue scanning or stop on parse error
             }
           }
           
-          if (isScanning) {
+          // Only request next frame if still scanning and no code was successfully processed and stopped
+          if (isScanning && streamRef.current) { 
             animationFrameIdRef.current = requestAnimationFrame(scanFrame);
           }
         };
         
-        animationFrameIdRef.current = requestAnimationFrame(scanFrame);
+        animationFrameIdRef.current = requestAnimationFrame(scanFrame); // Initial call to start the loop
 
       } else {
         setError("Video element is not available.");
@@ -139,7 +162,6 @@ export const useQRCodeScanner = ({ setConverterModel }: UseQRCodeScannerProps): 
   }, [stopScan, setConverterModel, isScanning]); // Added isScanning to dependencies
 
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
       stopScan();
     };
@@ -169,3 +191,4 @@ export const parseQRCodeData = (qrString: string): QRCodeData | null => {
     return null; 
   }
 };
+
