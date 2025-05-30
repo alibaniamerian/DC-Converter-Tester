@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useCallback } from 'react';
@@ -22,20 +23,19 @@ export interface UseDeviceParametersAndModelReturn {
   converterModel: string;
   setConverterModel: React.Dispatch<React.SetStateAction<string>>;
   availableModels: string[];
-  selectAndLoadModelParams: (modelName: string, serialNumber?: string, scannedDate?: string) => Promise<void>; // Added optional params
+  selectAndLoadModelParams: (modelName: string, serialNumberFromScan?: string, scannedDateFromScan?: string) => Promise<void>;
   saveCurrentDeviceParams: () => Promise<void>;
-  serialNumber: string; // Added serialNumber
-  setSerialNumber: React.Dispatch<React.SetStateAction<string>>; // Added setSerialNumber
-  scannedDate: string; // Added scannedDate
-  setScannedDate: React.Dispatch<React.SetStateAction<string>>; // Added setScannedDate
-  // Expose params directly for other hooks if needed
+  serialNumber: string;
+  setSerialNumber: React.Dispatch<React.SetStateAction<string>>;
+  scannedDate: string;
+  setScannedDate: React.Dispatch<React.SetStateAction<string>>;
   deviceParams: { 
     nominalPower: string; 
     viMin: string; 
     viMax: string; 
     voNominal: string; 
-    serialNumber: string; // Added serialNumber
-    scannedDate: string; // Added scannedDate
+    serialNumber: string;
+    scannedDate: string;
   };
 }
 
@@ -47,9 +47,9 @@ export const useDeviceParametersAndModel = ({
   const [viMin, setViMin] = useState('');
   const [viMax, setViMax] = useState('');
   const [voNominal, setVoNominal] = useState('');
-  const [userTimeout, setUserTimeout] = useState<string>('1000'); // Default timeout
-  const [serialNumber, setSerialNumber] = useState<string>(''); // Added state for serial number
-  const [scannedDate, setScannedDate] = useState<string>(''); // Added state for scanned date
+  const [userTimeout, setUserTimeout] = useState<string>('1000');
+  const [serialNumber, setSerialNumber] = useState<string>('');
+  const [scannedDate, setScannedDate] = useState<string>('');
 
   const {
     converterModel,
@@ -61,14 +61,15 @@ export const useDeviceParametersAndModel = ({
 
   const selectAndLoadModelParams = useCallback(async (modelName: string, serialNumberFromScan?: string, scannedDateFromScan?: string) => {
     if (!modelName) return;
-    setConverterModel(modelName); // Set the model name first
+    setConverterModel(modelName); 
     
-    // Update serial number and scanned date if provided from scan
     if (serialNumberFromScan !== undefined) {
       setSerialNumber(serialNumberFromScan);
+      setPageResponse(prev => prev + `${String.fromCharCode(10)}Serial Number from QR: ${serialNumberFromScan}`);
     }
     if (scannedDateFromScan !== undefined) {
       setScannedDate(scannedDateFromScan);
+      setPageResponse(prev => prev + `${String.fromCharCode(10)}Scanned Date from QR: ${scannedDateFromScan}`);
     }
 
     setPageIsBusy(true);
@@ -81,12 +82,10 @@ export const useDeviceParametersAndModel = ({
       setVoNominal(params.voNominal);
       setPageResponse(prev => prev + `${String.fromCharCode(10)}Parameters loaded for ${modelName}.`);
     } else {
-      // Optionally clear fields if model not found or has no params
-      // setNominalPower(''); setViMin(''); setViMax(''); setVoNominal('');
-      setPageResponse(prev => prev + `${String.fromCharCode(10)}Failed to load parameters for ${modelName}. Model not found or no parameters defined.`);
+      setPageResponse(prev => prev + `${String.fromCharCode(10)}Failed to load parameters for ${modelName}. Model not found or no parameters defined. You may need to save new parameters for this model.`);
     }
     setPageIsBusy(false);
-  }, [setConverterModel, loadConverterParams, setPageIsBusy, setPageResponse, setSerialNumber, setScannedDate]); // Added dependencies
+  }, [setConverterModel, loadConverterParams, setPageIsBusy, setPageResponse, setSerialNumber, setScannedDate]);
 
   const saveCurrentDeviceParams = useCallback(async () => {
     if (!converterModel.trim()) {
@@ -131,14 +130,14 @@ export const useDeviceParametersAndModel = ({
     userTimeout,
     setUserTimeout,
     converterModel,
-    setConverterModel, // From useConverterModel
-    availableModels,   // From useConverterModel
+    setConverterModel,
+    availableModels,
     selectAndLoadModelParams,
     saveCurrentDeviceParams,
-    serialNumber, // Return new states
-    setSerialNumber, // Return new setters
-    scannedDate, // Return new states
-    setScannedDate, // Return new setters
+    serialNumber,
+    setSerialNumber,
+    scannedDate,
+    setScannedDate,
     deviceParams,
   };
 };

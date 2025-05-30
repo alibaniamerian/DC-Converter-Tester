@@ -109,7 +109,7 @@ export default function Home() {
   const {
     nominalPower, setNominalPower, viMin, setViMin, viMax, setViMax, voNominal, setVoNominal,
     userTimeout, setUserTimeout, converterModel, setConverterModel, availableModels,
-    selectAndLoadModelParams, saveCurrentDeviceParams, deviceParams,
+    selectAndLoadModelParams, saveCurrentDeviceParams, deviceParams, serialNumber, scannedDate, // Added serialNumber, scannedDate
   } = useDeviceParametersAndModel({
     setPageResponse: setResponse,
     setPageIsBusy: setIsBusy,
@@ -164,6 +164,7 @@ export default function Home() {
     isConnected1, port1, isConnected2, port2,
     userTimeout,
     currentProcedureName: currentProcedureNameForExecutor,
+    deviceParams, // This now includes serialNumber and scannedDate from useDeviceParametersAndModel
     sendAndRead,
     setPageResponse: setResponse,
     setCommandResponsesInPage: setCommandResponsesFromQueueManager,
@@ -175,14 +176,11 @@ export default function Home() {
 
   const {
     isScanning,
-    // scannedModel, // No longer directly used from here for setting model
-    // scannedDate, // Can be displayed if needed
     error: qrScannerError,
     videoRef,
     startScan,
-    // stopScan // stopScan is usually called internally or on unmount
   } = useQRCodeScanner({ 
-    onModelScannedAndLoadParams: selectAndLoadModelParams 
+    onModelScannedAndLoadParams: selectAndLoadModelParams // This function will now handle setting model, serial, and date
   });
 
 
@@ -237,14 +235,13 @@ export default function Home() {
                 id="converterModel"
                 placeholder="Enter or select model..."
                 value={converterModel}
-                onChange={(e) => setConverterModel(e.target.value)} // Allows typing new model
+                onChange={(e) => setConverterModel(e.target.value)} 
                 disabled={isBusy || isExecuting || isScanning}
                 className="flex-grow"
               />
             <Select
               value={converterModel} 
               onValueChange={(value) => {
-                // This will set the model name and trigger parameter loading
                 selectAndLoadModelParams(value); 
               }}
               disabled={isBusy || isExecuting || isScanning}
@@ -268,6 +265,13 @@ export default function Home() {
               Save Params
             </Button>
           </div>
+          {(serialNumber || scannedDate) && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              {serialNumber && <span>Serial Number: {serialNumber}</span>}
+              {serialNumber && scannedDate && <span className="mx-2">|</span>}
+              {scannedDate && <span>Scanned Date: {scannedDate}</span>}
+            </div>
+          )}
         </div>
         <div className="w-full p-4 border rounded-md shadow-sm">
           <h2 className="text-lg font-semibold mb-3 text-foreground">Device Parameters</h2>
