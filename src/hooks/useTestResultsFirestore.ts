@@ -3,15 +3,7 @@ import { getFirestore, collection, addDoc, getDocs, DocumentData } from 'firebas
 
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyBaKAH0UaTmWSkeUuCEfIyYlv-R8bdixwo",
-  authDomain: "dc-converter-tester-v0.firebaseapp.com",
-  projectId: "dc-converter-tester-v0",
-  storageBucket: "dc-converter-tester-v0.firebasestorage.app",
-  messagingSenderId: "688723835016",
-  appId: "1:688723835016:web:935494d4c2c69fc7a8873d",
-  measurementId: "G-3ZWZS1KK5Y"
-};
+
 
 // Initialize Firebase
 let app;
