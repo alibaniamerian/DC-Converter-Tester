@@ -109,7 +109,7 @@ export const useQRCodeScanner = ({ onModelScannedAndLoadParams }: UseQRCodeScann
             }
             return;
           }
-
+          
           canvas.width = videoRef.current.videoWidth;
           canvas.height = videoRef.current.videoHeight;
 
@@ -146,7 +146,7 @@ export const useQRCodeScanner = ({ onModelScannedAndLoadParams }: UseQRCodeScann
               return;
             } else {
               console.warn("Failed to parse QR code data. Raw data:", code.data);
-              setError(`QR detected, but data format is incorrect. Expected JSON with "model" and "date", or "MODEL: ... Date: ..." and "SN: ...". Got: ${code.data.substring(0, 50)}...`);
+              setError(`QR detected, but data format is incorrect. Expected JSON or text containing MODEL, DATE/Date, and optionally SN. Got: ${code.data.substring(0, 50)}...`);
               stopScan(); // Stop scanning after a parse failure to prevent continuous errors
               return;
             }
@@ -158,7 +158,7 @@ export const useQRCodeScanner = ({ onModelScannedAndLoadParams }: UseQRCodeScann
             console.log("scanFrame: Not requesting next frame because isScanningRef.current is false or streamRef.current is null.");
           }
         };
-
+        
         if (isScanningRef.current) {
             animationFrameIdRef.current = requestAnimationFrame(scanFrame);
         } else {
@@ -180,7 +180,7 @@ export const useQRCodeScanner = ({ onModelScannedAndLoadParams }: UseQRCodeScann
       }
       stopScan();
     }
-  }, [stopScan, onModelScannedAndLoadParams]);
+  }, [stopScan, onModelScannedAndLoadParams]); // Removed isScanningRef from here, as it's a ref
 
   useEffect(() => {
     return () => {
@@ -207,31 +207,34 @@ export const parseQRCodeData = (qrString: string): QRCodeData | null => {
     if (jsonData && typeof jsonData.model === 'string' && typeof jsonData.date === 'string') {
       const data: QRCodeData = { model: jsonData.model, date: jsonData.date };
       if (typeof jsonData.serialNumber === 'string') {
-          data.serialNumber = jsonData.serialNumber;
+        data.serialNumber = jsonData.serialNumber;
       }
       console.log("Successfully parsed QR string as JSON:", data);
       return data;
     }
   } catch (e) {
-    console.warn("QR string is not valid JSON, attempting text format parse. Error:", e);
+    // Not JSON, proceed to text parsing
+    console.warn("QR string is not valid JSON, attempting text format parse.");
   }
 
-  // Updated regex to optionally capture Serial Number. \S+ matches one or more non-whitespace characters.
-  const modelDateSerialRegex = /MODEL:\s*(\S+)\s*Date:\s*(\S+)(?:\s*SN:\s*(\S+))?/;
-  const match = qrString.match(modelDateSerialRegex);
+  // Attempt to parse text format by extracting key-value pairs (order-independent)
+  const modelMatch = qrString.match(/MODEL:\s*(\S+)/i);
+  const dateMatch = qrString.match(/(?:DATE|Date):\s*(\d{4}-\d{2}-\d{2})/i); // Match DATE: or Date:
+  const snMatch = qrString.match(/SN:\s*(\S+)/i);
 
-  if (match && match[1] && match[2]) {
-    const model = match[1].trim();
-    const date = match[2].trim();
-    const serialNumber = match[3] ? match[3].trim() : undefined;
+  const model = modelMatch ? modelMatch[1].trim() : null;
+  const date = dateMatch ? dateMatch[1].trim() : null;
+  const serialNumber = snMatch ? snMatch[1].trim() : undefined;
+
+  if (model && date) {
     const data: QRCodeData = { model, date };
     if (serialNumber) {
-        data.serialNumber = serialNumber;
+      data.serialNumber = serialNumber;
     }
-    console.log(`Successfully parsed QR string with regex. Model: ${model}, Date: ${date}${serialNumber ? `, SN: ${serialNumber}` : ''}`);
+    console.log(`Successfully parsed QR string using key-value extraction. Model: ${model}, Date: ${date}${serialNumber ? `, SN: ${serialNumber}` : ''}`);
     return data;
   }
 
-  console.warn("Failed to parse QR string with known formats. Raw string:", qrString);
+  console.warn("Failed to parse QR string with known text formats (JSON or Key-Value). Raw string:", qrString);
   return null;
 };
