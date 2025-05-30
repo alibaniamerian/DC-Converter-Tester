@@ -1,3 +1,4 @@
+
 "use client";
 /// <reference lib="dom" />
 
@@ -16,7 +17,7 @@ export interface QueuedCommand {
 
 export interface ChartDataPoint { 
   x: number; 
-  [key: string]: number | undefined; 
+  [key: string]: number | undefined | null; // Allow null
 }
 
 // This should match the definition in @/components/ui/chart or be imported
@@ -35,13 +36,13 @@ export interface UseCommandExecutorProps {
   port2: SerialPort | null;
   userTimeout: string;
   currentProcedureName: string | undefined;
-  deviceParams: { // Updated deviceParams type to include serialNumber and scannedDate
+  deviceParams: { 
     nominalPower: string;
     viMin: string;
     viMax: string;
     voNominal: string;
-    serialNumber: string; // Added
-    scannedDate: string; // Added
+    serialNumber: string; 
+    scannedDate: string; 
   };
   sendAndRead: (
     port: SerialPort | null,
@@ -51,16 +52,16 @@ export interface UseCommandExecutorProps {
     lineEnding?: string,
     responseDelimiter?: string
   ) => Promise<string>;
-  setPageResponse: React.Dispatch<React.SetStateAction<string>>; // Main page response updater
-  setCommandResponsesInPage: React.Dispatch<React.SetStateAction<string[]>>; // To update the page's commandResponses state
+  setPageResponse: React.Dispatch<React.SetStateAction<string>>; 
+  setCommandResponsesInPage: React.Dispatch<React.SetStateAction<string[]>>; 
   setChartDataInPage: React.Dispatch<React.SetStateAction<ChartDataPoint[]>>;
-  setChartConfigInPage: React.Dispatch<React.SetStateStateAction<ChartConfig>>;
+  setChartConfigInPage: React.Dispatch<React.SetStateAction<ChartConfig>>;
   setIsChartReadyInPage: React.Dispatch<React.SetStateAction<boolean>>;
-  setIsBusyInPage: React.Dispatch<React.SetStateAction<boolean>>; // To set the general page busy state
+  setIsBusyInPage: React.Dispatch<React.SetStateAction<boolean>>; 
 }
 
 export interface UseCommandExecutorReturn {
-  isExecuting: boolean; // Specific busy state for this hook
+  isExecuting: boolean; 
   executeAllCommands: () => Promise<void>;
 }
 
@@ -80,17 +81,17 @@ export const useCommandExecutor = ({
   port2,
   userTimeout,
   currentProcedureName,
-  deviceParams, // Destructure deviceParams (now includes serialNumber and scannedDate)
+  deviceParams, 
   sendAndRead,
   setPageResponse,
-  setCommandResponsesInPage, // Renamed for clarity
-  setChartDataInPage,        // Renamed for clarity
-  setChartConfigInPage,        // Renamed for clarity
-  setIsChartReadyInPage,     // Renamed for clarity
-  setIsBusyInPage            // Renamed for clarity
+  setCommandResponsesInPage, 
+  setChartDataInPage,        
+  setChartConfigInPage,        
+  setIsChartReadyInPage,     
+  setIsBusyInPage            
 }: UseCommandExecutorProps): UseCommandExecutorReturn => {
   const [isExecuting, setIsExecuting] = useState(false);
-  const { addTestResult } = useTestResultsFirestore(); // Use the Firestore hook
+  const { addTestResult } = useTestResultsFirestore(); 
 
   const executeAllCommands = useCallback(async () => {
     if (isExecuting) {
@@ -112,15 +113,15 @@ export const useCommandExecutor = ({
     }
 
     setIsExecuting(true);
-    setIsBusyInPage(true); // Also set the general page busy state
+    setIsBusyInPage(true); 
     setIsChartReadyInPage(false);
     setChartDataInPage([]);
     setChartConfigInPage({});
     let tempUpdatedResponses: string[] = Array(commands.length * 8).fill('');
-    setCommandResponsesInPage([...tempUpdatedResponses]); // Initialize for display
+    setCommandResponsesInPage([...tempUpdatedResponses]); 
 
-    let collectedSwPoData: Record<number, { [viKey: string]: number }> = {};
-    let collectedSwVinData: Array<{ vin: number; vo?: number; eff?: number }> = [];
+    let collectedSwPoData: Record<number, { [viKey: string]: number | null }> = {}; // Allow null
+    let collectedSwVinData: Array<{ vin: number; vo?: number | null; eff?: number | null }> = []; // Allow null
     let uniqueViKeysForSwPo = new Set<string>();
     let lastMeasuredVi: number | undefined = undefined;
     let lastMeasuredVo: number | undefined = undefined;
@@ -147,7 +148,7 @@ export const useCommandExecutor = ({
           continue;
         }
       }
-      // Pass setPageResponse for individual command logging by sendAndRead
+      
       setPageResponse(prev => prev + `${String.fromCharCode(10)}Sending to ${targetPortName}: "${cmdInfo.text}"`); 
       try {
         const cmdResponse = await sendAndRead(targetPortSerial, cmdInfo.text, setPageResponse, parsedTimeout);
@@ -201,12 +202,28 @@ export const useCommandExecutor = ({
                   else if (commands[k].text === 'MEAS:ALL?' && commands[k].targetPort === 'COM3' && tempUpdatedResponses[k*8+3]) { piToUseForEff = parseFloat(tempUpdatedResponses[k*8+3]); break; }}}
                   const currentEffForStep = (poVal !== undefined && piToUseForEff !== undefined && piToUseForEff !== 0) ? parseFloat((poVal / piToUseForEff).toFixed(3)) : undefined;
                   if (currentEffForStep !== undefined) { tempUpdatedResponses[i * 8 + 7] = currentEffForStep.toString(); }
+                  
                   if (currentProcedureName === 'SwVin') {
-                    let vinForThisPoint: number | undefined = lastMeasuredVi; let voForThisPoint: number | undefined = lastMeasuredVo;
+                    let vinForThisPoint: number | undefined = lastMeasuredVi; 
+                    let voForThisPoint: number | undefined = lastMeasuredVo;
                     if (commands[i-3]?.text === 'MEAS:VOLT?' && commands[i-3]?.targetPort === 'COM3') { const vinStr = tempUpdatedResponses[(i-3) * 8 + 1]; if (vinStr) vinForThisPoint = parseFloat(vinStr); }
                     if (commands[i-2]?.text === 'MEAS:VOLT?' && commands[i-2]?.targetPort === 'COM6') { const voStr = tempUpdatedResponses[(i-2) * 8 + 4]; if (voStr) voForThisPoint = parseFloat(voStr); }
-                    if (vinForThisPoint !== undefined && !isNaN(vinForThisPoint) && currentEffForStep !== undefined) { collectedSwVinData.push({ vin: vinForThisPoint, vo: voForThisPoint, eff: currentEffForStep });}
-                  } else { if (poVal !== undefined && currentEffForStep !== undefined && lastMeasuredVi !== undefined) { const viKey = `eff_${lastMeasuredVi.toFixed(1)}`; uniqueViKeysForSwPo.add(viKey); if (!collectedSwPoData[poVal]) { collectedSwPoData[poVal] = {};} collectedSwPoData[poVal][viKey] = currentEffForStep;}}
+                    
+                    if (vinForThisPoint !== undefined && !isNaN(vinForThisPoint)) { 
+                        collectedSwVinData.push({ 
+                            vin: vinForThisPoint, 
+                            vo: (voForThisPoint !== undefined && !isNaN(voForThisPoint)) ? voForThisPoint : null, 
+                            eff: (currentEffForStep !== undefined && !isNaN(currentEffForStep)) ? currentEffForStep : null 
+                        });
+                    }
+                  } else { 
+                      if (poVal !== undefined && lastMeasuredVi !== undefined) { 
+                          const viKey = `eff_${lastMeasuredVi.toFixed(1)}`; 
+                          uniqueViKeysForSwPo.add(viKey); 
+                          if (!collectedSwPoData[poVal]) { collectedSwPoData[poVal] = {};} 
+                          collectedSwPoData[poVal][viKey] = (currentEffForStep !== undefined && !isNaN(currentEffForStep)) ? currentEffForStep : null;
+                      }
+                  }
                 }
                 break;
               case 'MEAS:POW?': if (parts.length > 0) tempUpdatedResponses[i * 8 + 6] = parts[0]; break;
@@ -224,7 +241,7 @@ export const useCommandExecutor = ({
         for (let k = 1; k < 8; k++) tempUpdatedResponses[i * 8 + k] = '';
       }
       setCommandResponsesInPage([...tempUpdatedResponses]);
-      await new Promise(resolve => setTimeout(resolve, 100)); // Small delay between commands
+      await new Promise(resolve => setTimeout(resolve, 100)); 
     }
 
     const newChartConfigLocal: ChartConfig = {};
@@ -232,51 +249,74 @@ export const useCommandExecutor = ({
     if (currentProcedureName === 'SwVin') {
       collectedSwVinData.sort((a, b) => a.vin - b.vin);
       finalChartData = collectedSwVinData.map(dp => ({ x: dp.vin, efficiency: dp.eff, vo: dp.vo }));
-      if (finalChartData.some(d => d.efficiency !== undefined)) { newChartConfigLocal['efficiency'] = { label: 'Efficiency', color: lineColors[0] }; }
-      if (finalChartData.some(d => d.vo !== undefined)) { newChartConfigLocal['vo'] = { label: 'Vo (V)', color: lineColors[1] }; }
+      if (finalChartData.some(d => d.efficiency !== undefined && d.efficiency !== null)) { newChartConfigLocal['efficiency'] = { label: 'Efficiency', color: lineColors[0] }; }
+      if (finalChartData.some(d => d.vo !== undefined && d.vo !== null)) { newChartConfigLocal['vo'] = { label: 'Vo (V)', color: lineColors[1] }; }
     } else {
-      finalChartData = Object.entries(collectedSwPoData).map(([poStr, viEffMap]) => ({ x: parseFloat(poStr), ...viEffMap })).sort((a, b) => a.x - b.x);
+      finalChartData = Object.entries(collectedSwPoData).map(([poStr, viEffMap]) => {
+        const point: ChartDataPoint = { x: parseFloat(poStr) };
+        for (const key in viEffMap) {
+            point[key] = viEffMap[key];
+        }
+        return point;
+      }).sort((a, b) => a.x - b.x);
       Array.from(uniqueViKeysForSwPo).sort((a,b) => parseFloat(a.split('_')[1]) - parseFloat(b.split('_')[1])).forEach((viKey, index) => { const viValue = viKey.split('_')[1]; newChartConfigLocal[viKey] = { label: `Eff @ ${viValue}V`, color: lineColors[index % lineColors.length]}; });
     }
     setChartDataInPage(finalChartData);
     setChartConfigInPage(newChartConfigLocal);
 
-    // Save results to Firestore
+    
     if (currentProcedureName && finalChartData.length > 0) {
+      // Sanitize data for Firestore
+      const cleanedChartDataForFirestore = finalChartData.map(point => {
+        const cleanedPoint: Record<string, any> = { x: point.x };
+        for (const key in point) {
+          if (key !== 'x' && Object.prototype.hasOwnProperty.call(point, key)) {
+             // @ts-ignore
+            cleanedPoint[key] = point[key] === undefined ? null : point[key];
+          }
+        }
+        return cleanedPoint;
+      });
+
+      const resultToSave = {
+        procedureName: currentProcedureName || "UnknownProcedure",
+        deviceParams: {
+           nominalPower: deviceParams.nominalPower || null,
+           viMin: deviceParams.viMin || null,
+           viMax: deviceParams.viMax || null,
+           voNominal: deviceParams.voNominal || null,
+           serialNumber: deviceParams.serialNumber || null, 
+           scannedDate: deviceParams.scannedDate || null, 
+        },
+        testData: cleanedChartDataForFirestore,
+        testTimestamp: new Date(), 
+      };
+
       try {
-        await addTestResult({
-          procedureName: currentProcedureName,
-          deviceParams: {
-             nominalPower: deviceParams.nominalPower,
-             viMin: deviceParams.viMin,
-             viMax: deviceParams.viMax,
-             voNominal: deviceParams.voNominal,
-             serialNumber: deviceParams.serialNumber, // Include serial number
-             scannedDate: deviceParams.scannedDate, // Include scanned date
-          },
-          testData: finalChartData,
-          testTimestamp: new Date(), // Add the current test execution timestamp
-        });
+        await addTestResult(resultToSave);
         setPageResponse(prev => prev + `${String.fromCharCode(10)}Test results saved to Firestore.`);
-      } catch (error) {
-        setPageResponse(prev => prev + `${String.fromCharCode(10)}Failed to save test results to Firestore: ${error}`);
+      } catch (error: any) {
         console.error("Error saving test results to Firestore:", error);
+        setPageResponse(prev => prev + `${String.fromCharCode(10)}Failed to save test results to Firestore: ${error.message || error.toString()}`);
       }
+    } else if (currentProcedureName) {
+        setPageResponse(prev => prev + `${String.fromCharCode(10)}No chart data generated for ${currentProcedureName} to save to Firestore.`);
     }
+
 
     if(finalChartData.length > 0) setIsChartReadyInPage(true);
     setPageResponse(prev => prev + `${String.fromCharCode(10)}All commands executed.`);
     setIsExecuting(false);
-    setIsBusyInPage(false); // Clear general page busy state
+    setIsBusyInPage(false); 
 
   }, [
     commands,
     isConnected1, port1, isConnected2, port2,
-    userTimeout, currentProcedureName, deviceParams, // deviceParams now includes serialNumber and scannedDate
+    userTimeout, currentProcedureName, deviceParams, 
     sendAndRead, setPageResponse,
     setCommandResponsesInPage, setChartDataInPage, setChartConfigInPage, setIsChartReadyInPage, setIsBusyInPage,
-    isExecuting, // To prevent re-triggering if already executing
-    addTestResult // Add addTestResult to dependency array
+    isExecuting, 
+    addTestResult 
   ]);
 
   return {
@@ -284,3 +324,4 @@ export const useCommandExecutor = ({
     executeAllCommands,
   };
 };
+
